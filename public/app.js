@@ -698,6 +698,37 @@ class ODICFinanceSystem {
         this.initializeMainApp();
     }
 
+    async checkBackendHealth() {
+        const dot = document.getElementById('apiStatusDot');
+        const text = document.getElementById('apiStatusText');
+        if (!dot || !text) return;
+
+        const setState = (state, message) => {
+            dot.classList.remove('online', 'error', 'warning');
+            if (state === 'online') dot.classList.add('online');
+            if (state === 'error') dot.classList.add('error');
+            if (state === 'warning') dot.classList.add('warning');
+            text.textContent = message;
+        };
+
+        const meta = document.querySelector('meta[name="api-base-url"]');
+        const base = (window.ODIC_API_BASE_URL || (meta && meta.content) || '').trim();
+        if (!base) {
+            setState('warning', 'Backend API: Not configured');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${base.replace(/\/$/, '')}/api/health`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setState('online', `Backend API: ${data.status}`);
+        } catch (err) {
+            console.warn('Backend health check failed', err);
+            setState('error', 'Backend API: Unreachable');
+        }
+    }
+
     /**
      * Initialize main application components
      */
@@ -705,6 +736,7 @@ class ODICFinanceSystem {
         this.updateUserInfo();
         this.navigateToScreen('dashboard');
         this.loadAllData();
+        this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
         setTimeout(() => {
