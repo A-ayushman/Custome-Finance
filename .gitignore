@@ -1,0 +1,16 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Mac system files
+__MACOSX/
+.DS_Store
+
+# Environment files
+.env
+.env.local
+
+# Build outputs
+dist/
+.cache/

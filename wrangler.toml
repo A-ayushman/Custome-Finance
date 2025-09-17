@@ -1,0 +1,13 @@
+name = "odic-finance-production"
+pages_build_output_dir = "public"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "odic-finance-prod"
+database_id = "8d32837b-79b7-4af9-8007-eec44b6244cd"
+migrations_dir = "migrations"
+
+

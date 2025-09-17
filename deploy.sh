@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# ODIC Finance System - Automated Deployment Script
+echo "🚀 Deploying ODIC Finance System..."
+
+# Validate configuration
+if ! grep -q "database_id.*=.*" wrangler.toml | grep -v "your-database-id"; then
+    echo "❌ Please update database_id in wrangler.toml first"
+    echo "Run: npm run db:create and copy the ID"
+    exit 1
+fi
+
+# Apply migrations to remote database
+echo "🗄️ Applying database migrations..."
+npm run db:migrate:remote
+
+# Seed remote database
+echo "🌱 Seeding database..."
+npm run db:seed:remote
+
+# Deploy application
+echo "🚀 Deploying to Cloudflare..."
+npm run deploy
+
+echo "✅ Deployment complete!"
+echo "🌐 Your application is now live!"
+echo ""
+echo "📋 Post-deployment checklist:"
+echo "1. Visit your application URL"
+echo "2. Login: admin@odic-international.com / admin123"
+echo "3. Change admin password immediately"
+echo "4. Create team user accounts"
+echo "5. Configure settings and themes"
+echo "6. Upload company templates"
