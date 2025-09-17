@@ -6,7 +6,7 @@ compatibility_date = "2025-09-17"
 vars = { ENVIRONMENT = "production" }
 
 [[env.production.d1_databases]]
-binding = "DB" database_name = "odic-finance-prod" database_id = "OLD-ID" migrations_dir = "migrations"
+binding = "DB"database_name = "odic-finance-prod" database_id = "OLD-ID" migrations_dir = "migrations"
 database_name = "odic-finance-prod"
 database_id = "bce6cc34-9924-4203-9f81-665255888dc2"
 migrations_dir = "migrations"
