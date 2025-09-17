@@ -12,15 +12,15 @@ fi
 
 # Apply migrations to remote database
 echo "🗄️ Applying database migrations..."
-npm run db:migrate:remote
+npm run db:migrate
 
 # Seed remote database
 echo "🌱 Seeding database..."
-npm run db:seed:remote
+npm run db:seed
 
 # Deploy application
 echo "🚀 Deploying to Cloudflare..."
-npm run deploy
+npm run deploy:pages && npm run deploy:worker
 
 echo "✅ Deployment complete!"
 echo "🌐 Your application is now live!"
