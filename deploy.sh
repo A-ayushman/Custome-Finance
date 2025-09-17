@@ -4,9 +4,15 @@
 echo "🚀 Deploying ODIC Finance System..."
 
 # Validate configuration
-if ! grep -q "database_id.*=.*" wrangler.toml | grep -v "your-database-id"; then
+if ! grep -Eq 'database_id\s*=\s*"[0-9a-fA-F-]+"' wrangler.toml; then
     echo "❌ Please update database_id in wrangler.toml first"
-    echo "Run: npm run db:create and copy the ID"
+    echo "Run: npm run db:create and copy the ID into wrangler.toml and wrangler-worker.toml"
+    exit 1
+fi
+
+if ! grep -Eq 'database_id\s*=\s*"[0-9a-fA-F-]+"' wrangler-worker.toml; then
+    echo "❌ Please update database_id in wrangler-worker.toml first"
+    echo "Run: npm run db:create and copy the ID into wrangler-worker.toml"
     exit 1
 fi
 
