@@ -11,6 +11,8 @@
     <meta name="author" content="ODIC International">
     <meta name="version" content="2.1.0">
     <meta name="build" content="2025.09.17">
+    <!-- Backend API Base URL for Worker calls (optional) -->
+    <meta name="api-base-url" content="">
     
     <!-- PWA Support -->
     <link rel="manifest" href="data:application/json,{
@@ -284,12 +286,12 @@
             <div class="sidebar-footer">
                 <div class="system-status">
                     <div class="status-item">
-                        <span class="status-dot online"></span>
+                        <span id="systemStatusDot" class="status-dot online"></span>
                         <span>System Online</span>
                     </div>
                     <div class="status-item">
-                        <span class="status-dot"></span>
-                        <span>Database Connected</span>
+                        <span id="apiStatusDot" class="status-dot"></span>
+                        <span id="apiStatusText">Backend API</span>
                     </div>
                 </div>
                 
