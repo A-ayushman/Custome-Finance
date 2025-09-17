@@ -1,0 +1,9 @@
+{
+  "name": "ODIC Finance System",
+  "short_name": "ODIC Finance",
+  "description": "Enterprise Finance Management Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2563EB",
+  "theme_color": "#2563EB"
+}
