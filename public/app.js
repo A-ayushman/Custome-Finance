@@ -156,8 +156,8 @@ class ODICFinanceSystem {
                 this.hideLoadingScreen();
                 this.checkExistingLogin();
                 console.log(`✅ Application loaded successfully`);
-            }, 800);
-        }, 1200);
+            }, 200);
+        }, 300);
     }
 
     /**
