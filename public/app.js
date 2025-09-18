@@ -2590,7 +2590,7 @@ class ODICFinanceSystem {
 let odic;
 
 function initializeODIC() {
-    console.log(`🚀 Initializing ODIC Finance System v${new ODICFinanceSystem().version} - FIXED VERSION...`);
+    console.log('🚀 Initializing ODIC Finance System - FIXED VERSION...');
     odic = new ODICFinanceSystem();
     
     // Make globally accessible for onclick handlers
