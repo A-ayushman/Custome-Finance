@@ -742,6 +742,7 @@ class ODICFinanceSystem {
         this.loadAllData();
         this.setupVendorsUiIfPresent && this.setupVendorsUiIfPresent();
         this.setupDashboardQuickActions && this.setupDashboardQuickActions();
+        this.setupDashboardKPIs && this.setupDashboardKPIs();
         this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
@@ -1575,6 +1576,33 @@ class ODICFinanceSystem {
                     break;
                 default:
                     this.showToast('Feature coming soon!', 'info');
+            }
+        });
+    }
+
+    setupDashboardKPIs() {
+        const grid = document.querySelector('.kpi-grid');
+        if (!grid || grid._odicBound) return;
+        grid._odicBound = true;
+        grid.addEventListener('click', (e) => {
+            const card = e.target.closest('.kpi-card.clickable');
+            if (!card) return;
+            const action = card.getAttribute('data-action');
+            switch (action) {
+                case 'pending-approvals':
+                    this.navigateToScreen('approvals');
+                    break;
+                case 'payments-due':
+                    this.navigateToScreen('payments');
+                    break;
+                case 'vendor-onboarding':
+                    this.navigateToScreen('vendors');
+                    break;
+                case 'advances-available':
+                    this.navigateToScreen('payments');
+                    break;
+                default:
+                    this.showToast('Opening details...', 'info');
             }
         });
     }
