@@ -1780,8 +1780,8 @@
         </div>
         <div class="dev-body">
             <div class="dev-info">
-                <div><strong>Version:</strong> 2.1.0</div>
-                <div><strong>Build:</strong> 2025.09.17</div>
+                <div><strong>Version:</strong> 2.1.1</div>
+                <div><strong>Build:</strong> 2025.09.18</div>
                 <div><strong>Environment:</strong> Production</div>
                 <div><strong>User Agent:</strong> <span id="userAgent"></span></div>
             </div>
@@ -1794,11 +1794,17 @@
 
     <!-- Service Worker Registration -->
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(registration => console.log('SW registered:', registration))
-                .catch(error => console.log('SW registration failed:', error));
-        }
+        (function(){
+            const params = new URLSearchParams(location.search);
+            const disable = params.get('nosw') === '1' || localStorage.getItem('odic_disable_sw') === '1';
+            if (disable) {
+                console.log('SW registration disabled via nosw=1 or odic_disable_sw');
+            } else if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => console.log('SW registered:', registration))
+                    .catch(error => console.log('SW registration failed:', error));
+            }
+        })();
     </script>
 </body>
 </html>
