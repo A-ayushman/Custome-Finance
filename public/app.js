@@ -2802,6 +2802,29 @@ class ODICFinanceSystem {
     generateMatchingReport() { this.showToast('PO-Invoice matching report (demo)', 'success'); }
     generateAnalyticsReport(type) { this.showToast(`Analytics: ${type}`, 'success'); }
 
+    // Missing UI stubs to avoid console errors
+    validateInvoices() { this.showToast('Validated invoices (demo)', 'success'); }
+    editTemplate(type) { this.openModal('Edit Template', `<p>Template editor for ${type} coming soon</p>`, `<button class=\"btn btn--primary\" onclick=\"odic.closeModal()\">Close</button>`); }
+    createBackup() {
+        try {
+            const data = this.getSavedData('odicFinanceData') || this.data || {};
+            this.downloadFile(`odic_backup_${this.buildNumber}.json`, JSON.stringify(data, null, 2), 'application/json');
+            this.showToast('Backup downloaded', 'success');
+        } catch (e) { this.showToast('Failed to create backup', 'error'); }
+    }
+    restoreBackup() {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.json,application/json';
+        input.addEventListener('change', async () => {
+            const file = input.files[0]; if (!file) return;
+            try { const text = await file.text(); const json = JSON.parse(text); this.data = json; this.saveData('odicFinanceData', json); this.loadAllData(); this.showToast('Backup restored (local)', 'success'); }
+            catch (e) { console.error(e); this.showToast('Failed to restore backup', 'error'); }
+        });
+        input.click();
+    }
+    toggleDevConsole() { const el = document.getElementById('devConsole'); if (el) el.classList.toggle('hidden'); }
+    showForgotPassword() { this.openModal('Forgot Password', '<p>Use demo password \\"demo123\\" for any email, or use the demo credentials listed on the login screen.</p>', '<button class=\"btn btn--primary\" onclick=\"odic.closeModal()\">Close</button>'); }
+
     // Audit logs
     filterAuditLogs() { this.showToast('Filter panel coming soon', 'info'); }
     exportAuditLogs() { this.showToast('Audit trail exported (demo)', 'success'); }
