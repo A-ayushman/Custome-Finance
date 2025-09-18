@@ -150,6 +150,7 @@ class ODICFinanceSystem {
             this.setupEventListeners();
             this.loadSavedState();
             this.setupOfflineDetection();
+            this.setupServiceWorkerUpdates();
             
             // Hide loading screen and check login after initialization
             setTimeout(() => {
@@ -698,6 +699,14 @@ class ODICFinanceSystem {
         this.initializeMainApp();
     }
 
+    updateVersionBadge() {
+        const badge = document.getElementById('versionBadge');
+        if (badge) {
+            badge.textContent = `v${this.version}`;
+            badge.title = `Build ${this.buildNumber}`;
+        }
+    }
+
     async checkBackendHealth() {
         const dot = document.getElementById('apiStatusDot');
         const text = document.getElementById('apiStatusText');
@@ -738,11 +747,13 @@ class ODICFinanceSystem {
      */
     initializeMainApp() {
         this.updateUserInfo();
+        this.updateVersionBadge();
         this.navigateToScreen('dashboard');
         this.loadAllData();
         this.setupVendorsUiIfPresent && this.setupVendorsUiIfPresent();
         this.setupDashboardQuickActions && this.setupDashboardQuickActions();
         this.setupDashboardKPIs && this.setupDashboardKPIs();
+        this.setupPOInvoiceHandlers && this.setupPOInvoiceHandlers();
         this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
@@ -1534,6 +1545,54 @@ class ODICFinanceSystem {
     }
 
     // Dashboard quick actions and utilities
+    setupServiceWorkerUpdates() {
+        if (!('serviceWorker' in navigator)) return;
+        const onNewServiceWorker = (registration) => {
+            const installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed') {
+                    if (registration.waiting) {
+                        this.promptUpdate(registration);
+                    }
+                }
+            });
+        };
+        navigator.serviceWorker.getRegistration().then((reg) => {
+            if (!reg) return;
+            if (reg.waiting) this.promptUpdate(reg);
+            reg.addEventListener('updatefound', () => onNewServiceWorker(reg));
+        }).catch(() => {});
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+        });
+    }
+
+    promptUpdate(registration) {
+        // Show update toast with button
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = 'toast info';
+        toast.innerHTML = `
+            <i class="fas fa-arrow-rotate-right"></i>
+            <div class="toast-content">A new version is available.</div>
+            <button class="btn btn--primary btn--sm" style="margin-left:auto" id="refreshNowBtn">Refresh</button>
+        `;
+        container.appendChild(toast);
+        const btn = toast.querySelector('#refreshNowBtn');
+        btn.addEventListener('click', () => {
+            try {
+                registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+            } catch (e) {
+                console.warn('skipWaiting message failed', e);
+            }
+        });
+    }
+
     setupDashboardQuickActions() {
         const container = document.querySelector('.quick-actions-grid');
         if (!container || container._odicBound) return;
@@ -1660,6 +1719,14 @@ class ODICFinanceSystem {
     updatePaymentChart() { this.showToast('Chart updated', 'info'); }
     toggleTrendsView() { this.showToast('Trends view toggled', 'info'); }
     refreshWorkflows() { this.showToast('Workflows refreshed', 'info'); }
+
+    setupPOInvoiceHandlers() {
+        const createPOBtn = document.getElementById('createPOBtn');
+        if (createPOBtn && !createPOBtn._odicBound) {
+            createPOBtn._odicBound = true;
+            createPOBtn.addEventListener('click', () => this.openPOForm('create'));
+        }
+    }
 
     // Vendors: lightweight UI wiring (page size, search, status, pagination)
     setupVendorsUiIfPresent() {
@@ -1990,6 +2057,154 @@ class ODICFinanceSystem {
     }
 
     // Print/export templates
+    // PO/Invoice Forms
+    openPOForm(mode = 'create', po = null) {
+        const isEdit = mode === 'edit' && po;
+        const seq = (this.data.purchaseOrders?.length || 0) + 1;
+        const number = this.formatDocumentNumber('ODI/{YYYY-YY}/{NNNN}', seq);
+        const p = po || { number, date: new Date().toISOString().split('T')[0], vendor: { name: '', gstin: '', pan: '', address: '' }, items: [{ description: '', hsn: '', qty: 1, unit: 'pcs', price: 0 }], taxes: { cgst: 9, sgst: 9, igst: 0 }, terms: [], custom_fields: {} };
+        const body = `
+            <form id="poForm" class="form-grid">
+                <div class="form-group"><label class="form-label">PO Number</label><input type="text" name="number" class="form-control" value="${p.number}" readonly></div>
+                <div class="form-group"><label class="form-label">Date</label><input type="date" name="date" class="form-control" value="${p.date}"></div>
+                <div class="form-group"><label class="form-label">Vendor Name *</label><input type="text" name="vendor_name" class="form-control" value="${p.vendor.name}" required></div>
+                <div class="form-group"><label class="form-label">Vendor GSTIN</label><input type="text" name="vendor_gstin" class="form-control" maxlength="15" value="${p.vendor.gstin||''}"></div>
+                <div class="form-group"><label class="form-label">Vendor PAN</label><input type="text" name="vendor_pan" class="form-control" maxlength="10" value="${p.vendor.pan||''}"></div>
+                <div class="form-group"><label class="form-label">Vendor Address</label><textarea name="vendor_address" class="form-control">${p.vendor.address||''}</textarea></div>
+                <div class="form-group" style="grid-column:1/-1"><label class="form-label">Items *</label>
+                    <div id="poItems"></div>
+                    <button type="button" class="btn btn--secondary btn--sm" id="addPOItem">Add Item</button>
+                </div>
+                <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${p.taxes.cgst}"></div>
+                <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${p.taxes.sgst}"></div>
+                <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${p.taxes.igst}"></div>
+                <div class="form-group" style="grid-column:1/-1"><label class="form-label">Terms</label><textarea name="terms" class="form-control">${(p.terms||[]).join('\n')}</textarea></div>
+            </form>
+            <div id="poTotals" style="margin-top:8px; font-family:monospace"></div>
+        `;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Cancel</button>
+            <button id="poSaveBtn" class="btn btn--primary">${isEdit?'Update':'Create'} PO</button>
+            <button id="poPreviewBtn" class="btn btn--secondary">Preview</button>
+        `;
+        this.openModal(isEdit?'Edit Purchase Order':'Create Purchase Order', body, footer);
+        const itemsWrap = document.getElementById('poItems');
+        const addBtn = document.getElementById('addPOItem');
+        const renderItems = (items) => {
+            itemsWrap.innerHTML = items.map((it, i) => `
+                <div class="form-grid" data-index="${i}" style="border:1px dashed var(--color-border); padding:8px; margin-bottom:8px; border-radius:8px">
+                    <div class="form-group"><label class="form-label">Description *</label><input type="text" name="desc_${i}" class="form-control" value="${it.description||''}" required></div>
+                    <div class="form-group"><label class="form-label">HSN/SAC</label><input type="text" name="hsn_${i}" class="form-control" value="${it.hsn||it.sac||''}" maxlength="8"></div>
+                    <div class="form-group"><label class="form-label">Qty *</label><input type="number" min="1" step="1" name="qty_${i}" class="form-control" value="${it.qty||1}" required></div>
+                    <div class="form-group"><label class="form-label">Unit</label><input type="text" name="unit_${i}" class="form-control" value="${it.unit||'pcs'}"></div>
+                    <div class="form-group"><label class="form-label">Price (₹) *</label><input type="number" min="0" step="0.01" name="price_${i}" class="form-control" value="${it.price||0}" required></div>
+                    <div class="form-group"><button type="button" class="btn btn--error btn--sm" data-remove="${i}">Remove</button></div>
+                </div>
+            `).join('');
+        };
+        renderItems(p.items);
+        const recalcTotals = () => {
+            const form = document.getElementById('poForm');
+            const fd = new FormData(form);
+            const items = [];
+            let i = 0;
+            while (fd.has(`desc_${i}`)) {
+                items.push({ description: fd.get(`desc_${i}`), hsn: fd.get(`hsn_${i}`)||'', qty: Number(fd.get(`qty_${i}`)||0), unit: fd.get(`unit_${i}`)||'', price: Number(fd.get(`price_${i}`)||0) });
+                i++;
+            }
+            const sub = items.reduce((s, it)=> s + (it.qty*it.price), 0);
+            const cgst = (Number(fd.get('cgst')||0)/100)*sub;
+            const sgst = (Number(fd.get('sgst')||0)/100)*sub;
+            const igst = (Number(fd.get('igst')||0)/100)*sub;
+            const total = Math.round(sub+cgst+sgst+igst);
+            document.getElementById('poTotals').textContent = `Subtotal: ${this.formatCurrency(sub)} | Taxes: ${this.formatCurrency(cgst+sgst+igst)} | Total: ${this.formatCurrency(total)}`;
+        };
+        addBtn.addEventListener('click', () => { p.items.push({ description:'', hsn:'', qty:1, unit:'pcs', price:0 }); renderItems(p.items); recalcTotals(); attachRemove(); });
+        const attachRemove = () => {
+            itemsWrap.querySelectorAll('button[data-remove]').forEach(btn=>{
+                btn.addEventListener('click', ()=>{ const idx=Number(btn.getAttribute('data-remove')); p.items.splice(idx,1); renderItems(p.items); recalcTotals(); attachRemove(); });
+            });
+        };
+        attachRemove();
+        itemsWrap.addEventListener('input', recalcTotals);
+        document.getElementById('poForm').addEventListener('input', recalcTotals);
+        recalcTotals();
+        const saveBtn = document.getElementById('poSaveBtn');
+        const prevBtn = document.getElementById('poPreviewBtn');
+        prevBtn.addEventListener('click', ()=>{
+            const payload = this.collectPOForm();
+            const v = this.validatePOPayload(payload);
+            if (!v.valid) { this.showToast(v.message, 'error'); return; }
+            const html = this.renderPOToPrint(this.mapPOPayloadToDoc(payload));
+            const body = `<div style="max-height: 70vh; overflow:auto; background:#fff; padding:16px; border:1px solid var(--color-border)">${html}</div>`;
+            const footer = `
+                <button class="btn btn--outline" onclick="odic.closeModal()">Close</button>
+                <button class="btn btn--primary" onclick="odic.printPO()">Print A4</button>`;
+            this.openModal('PO Template Preview', body, footer);
+        });
+        saveBtn.addEventListener('click', async ()=>{
+            const payload = this.collectPOForm();
+            const v = this.validatePOPayload(payload);
+            if (!v.valid) { this.showToast(v.message, 'error'); return; }
+            try {
+                this.setButtonLoading(saveBtn, true);
+                const base = this.getApiBase();
+                if (base) {
+                    await this.createPOAPI(payload);
+                } else {
+                    const newId = (this.data.purchaseOrders?.length||0) + 1;
+                    this.data.purchaseOrders = this.data.purchaseOrders || [];
+                    this.data.purchaseOrders.unshift({ id:newId, ...this.mapPOPayloadToDoc(payload)});
+                    this.saveData('odicFinanceData', { ...this.data });
+                }
+                this.showToast('Purchase Order saved', 'success');
+                this.closeModal();
+                this.loadDashboardData();
+            } catch(e) {
+                console.error(e);
+                this.showToast(e.message||'Failed to save PO', 'error');
+            } finally { this.setButtonLoading(saveBtn, false); }
+        });
+    }
+
+    collectPOForm() {
+        const f = document.getElementById('poForm');
+        const fd = new FormData(f);
+        const items = [];
+        let i=0; while (fd.has(`desc_${i}`)) { items.push({ description: (fd.get(`desc_${i}`)||'').trim(), hsn: (fd.get(`hsn_${i}`)||'').trim(), qty: Number(fd.get(`qty_${i}`)||0), unit: (fd.get(`unit_${i}`)||'').trim(), price: Number(fd.get(`price_${i}`)||0) }); i++; }
+        return {
+            number: fd.get('number'), date: fd.get('date'), vendor_name: fd.get('vendor_name'), vendor_gstin: (fd.get('vendor_gstin')||'').trim(), vendor_pan: (fd.get('vendor_pan')||'').trim(), vendor_address: (fd.get('vendor_address')||'').trim(), cgst: Number(fd.get('cgst')||0), sgst: Number(fd.get('sgst')||0), igst: Number(fd.get('igst')||0), items, terms: (fd.get('terms')||'').split('\n').map(s=>s.trim()).filter(Boolean)
+        };
+    }
+
+    validatePOPayload(p) {
+        if (!p.vendor_name || !p.vendor_name.trim()) return { valid:false, message:'Vendor name is required' };
+        if (!Array.isArray(p.items) || p.items.length===0) return { valid:false, message:'At least one item is required' };
+        for (const [idx,it] of p.items.entries()) {
+            if (!it.description || !it.description.trim()) return { valid:false, message:`Item ${idx+1}: description is required` };
+            if (!(it.qty>0)) return { valid:false, message:`Item ${idx+1}: quantity must be > 0` };
+            if (!(it.price>=0)) return { valid:false, message:`Item ${idx+1}: price must be >= 0` };
+            if (it.hsn && !/^[0-9A-Za-z]{4,8}$/.test(it.hsn)) return { valid:false, message:`Item ${idx+1}: HSN/SAC invalid` };
+        }
+        for (const t of ['cgst','sgst','igst']) { if (p[t]<0 || p[t]>28) return { valid:false, message:`${t.toUpperCase()} should be between 0 and 28` }; }
+        return { valid:true };
+    }
+
+    mapPOPayloadToDoc(p) {
+        return {
+            number: p.number, date: p.date, vendor: { name: p.vendor_name, gstin: p.vendor_gstin, pan: p.vendor_pan, address: p.vendor_address }, company: this.data.company, items: p.items.map(it=>({ description: it.description, hsn: it.hsn, qty: it.qty, unit: it.unit, price: it.price })), taxes: { cgst: p.cgst, sgst: p.sgst, igst: p.igst }, terms: p.terms
+        };
+    }
+
+    async createPOAPI(payload) {
+        const base = this.getApiBase();
+        const res = await fetch(`${base}/api/purchase-orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json?.error?.message||'API error');
+        return json.data;
+    }
+
     showPOTemplates() {
         const sample = this.samplePO();
         const html = this.renderPOToPrint(sample);
@@ -2004,6 +2219,157 @@ class ODICFinanceSystem {
     printPO() {
         const sample = this.samplePO();
         this.showPrintView(this.renderPOToPrint(sample));
+    }
+
+    createInvoice() {
+        this.openInvoiceForm('create');
+    }
+
+    openInvoiceForm(mode='create', inv=null) {
+        const isEdit = mode==='edit' && inv;
+        const seq = (this.data.invoices?.length||0) + 1;
+        const number = this.formatDocumentNumber('INV/{YYYY-YY}/{NNNN}', seq);
+        const v = inv || { number, date: new Date().toISOString().split('T')[0], vendor: { name:'', gstin:'', pan:'', address:'' }, items:[{ description:'', sac:'', qty:1, unit:'job', price:0 }], taxes: { cgst:9, sgst:9, igst:0 }, custom_fields: [] };
+        const body = `
+            <form id="invForm" class="form-grid">
+                <div class="form-group"><label class="form-label">Invoice Number</label><input name="number" class="form-control" value="${v.number}" readonly></div>
+                <div class="form-group"><label class="form-label">Date</label><input type="date" name="date" class="form-control" value="${v.date}"></div>
+                <div class="form-group"><label class="form-label">Vendor Name *</label><input name="vendor_name" class="form-control" required value="${v.vendor.name}"></div>
+                <div class="form-group"><label class="form-label">Vendor GSTIN</label><input name="vendor_gstin" class="form-control" maxlength="15" value="${v.vendor.gstin||''}"></div>
+                <div class="form-group"><label class="form-label">Vendor PAN</label><input name="vendor_pan" class="form-control" maxlength="10" value="${v.vendor.pan||''}"></div>
+                <div class="form-group"><label class="form-label">Vendor Address</label><textarea name="vendor_address" class="form-control">${v.vendor.address||''}</textarea></div>
+                <div class="form-group" style="grid-column:1/-1"><label class="form-label">Items *</label>
+                    <div id="invItems"></div>
+                    <button type="button" class="btn btn--secondary btn--sm" id="addInvItem">Add Item</button>
+                </div>
+                <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${v.taxes.cgst}"></div>
+                <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${v.taxes.sgst}"></div>
+                <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${v.taxes.igst}"></div>
+                <div class="form-group"><label class="form-label">PO Reference</label><input type="text" name="po_ref" class="form-control"></div>
+            </form>
+            <div id="invTotals" style="margin-top:8px; font-family:monospace"></div>
+        `;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Cancel</button>
+            <button id="invSaveBtn" class="btn btn--primary">${isEdit?'Update':'Create'} Invoice</button>
+            <button id="invPreviewBtn" class="btn btn--secondary">Preview</button>
+        `;
+        this.openModal(isEdit?'Edit Invoice':'Create Invoice', body, footer);
+        const itemsWrap = document.getElementById('invItems');
+        const addBtn = document.getElementById('addInvItem');
+        const renderItems = (items) => {
+            itemsWrap.innerHTML = items.map((it, i) => `
+                <div class="form-grid" data-index="${i}" style="border:1px dashed var(--color-border); padding:8px; margin-bottom:8px; border-radius:8px">
+                    <div class="form-group"><label class="form-label">Description *</label><input type="text" name="desc_${i}" class="form-control" value="${it.description||''}" required></div>
+                    <div class="form-group"><label class="form-label">HSN/SAC</label><input type="text" name="sac_${i}" class="form-control" value="${it.hsn||it.sac||''}" maxlength="8"></div>
+                    <div class="form-group"><label class="form-label">Qty *</label><input type="number" min="1" step="1" name="qty_${i}" class="form-control" value="${it.qty||1}" required></div>
+                    <div class="form-group"><label class="form-label">Unit</label><input type="text" name="unit_${i}" class="form-control" value="${it.unit||'job'}"></div>
+                    <div class="form-group"><label class="form-label">Price (₹) *</label><input type="number" min="0" step="0.01" name="price_${i}" class="form-control" value="${it.price||0}" required></div>
+                    <div class="form-group"><button type="button" class="btn btn--error btn--sm" data-remove="${i}">Remove</button></div>
+                </div>
+            `).join('');
+        };
+        renderItems(v.items);
+        const attachRemove = () => {
+            itemsWrap.querySelectorAll('button[data-remove]').forEach(btn=>{
+                btn.addEventListener('click', ()=>{ const idx=Number(btn.getAttribute('data-remove')); v.items.splice(idx,1); renderItems(v.items); recalc(); attachRemove(); });
+            });
+        };
+        const recalc = () => {
+            const form = document.getElementById('invForm');
+            const fd = new FormData(form);
+            const items = [];
+            let i = 0;
+            while (fd.has(`desc_${i}`)) {
+                items.push({ description: fd.get(`desc_${i}`), sac: fd.get(`sac_${i}`)||'', qty: Number(fd.get(`qty_${i}`)||0), unit: fd.get(`unit_${i}`)||'', price: Number(fd.get(`price_${i}`)||0) });
+                i++;
+            }
+            const sub = items.reduce((s, it)=> s + (it.qty*it.price), 0);
+            const cgst = (Number(fd.get('cgst')||0)/100)*sub;
+            const sgst = (Number(fd.get('sgst')||0)/100)*sub;
+            const igst = (Number(fd.get('igst')||0)/100)*sub;
+            const total = Math.round(sub+cgst+sgst+igst);
+            document.getElementById('invTotals').textContent = `Subtotal: ${this.formatCurrency(sub)} | Taxes: ${this.formatCurrency(cgst+sgst+igst)} | Total: ${this.formatCurrency(total)}`;
+        };
+        addBtn.addEventListener('click', () => { v.items.push({ description:'', sac:'', qty:1, unit:'job', price:0 }); renderItems(v.items); recalc(); attachRemove(); });
+        attachRemove();
+        itemsWrap.addEventListener('input', recalc);
+        document.getElementById('invForm').addEventListener('input', recalc);
+        recalc();
+        const saveBtn = document.getElementById('invSaveBtn');
+        const prevBtn = document.getElementById('invPreviewBtn');
+        prevBtn.addEventListener('click', ()=>{
+            const payload = this.collectInvoiceForm();
+            const v = this.validateInvoicePayload(payload);
+            if (!v.valid) { this.showToast(v.message, 'error'); return; }
+            const html = this.renderInvoiceToPrint(this.mapInvoicePayloadToDoc(payload));
+            const body = `<div style="max-height: 70vh; overflow:auto; background:#fff; padding:16px; border:1px solid var(--color-border)">${html}</div>`;
+            const footer = `
+                <button class="btn btn--outline" onclick="odic.closeModal()">Close</button>
+                <button class="btn btn--primary" onclick="odic.printInvoice()">Print A4</button>`;
+            this.openModal('Invoice Template Preview', body, footer);
+        });
+        saveBtn.addEventListener('click', async ()=>{
+            const payload = this.collectInvoiceForm();
+            const v = this.validateInvoicePayload(payload);
+            if (!v.valid) { this.showToast(v.message, 'error'); return; }
+            try {
+                this.setButtonLoading(saveBtn, true);
+                const base = this.getApiBase();
+                if (base) {
+                    await this.createInvoiceAPI(payload);
+                } else {
+                    const newId = (this.data.invoices?.length||0) + 1;
+                    this.data.invoices = this.data.invoices || [];
+                    this.data.invoices.unshift({ id:newId, ...this.mapInvoicePayloadToDoc(payload)});
+                    this.saveData('odicFinanceData', { ...this.data });
+                }
+                this.showToast('Invoice saved', 'success');
+                this.closeModal();
+                this.loadDashboardData();
+            } catch(e) {
+                console.error(e);
+                this.showToast(e.message||'Failed to save Invoice', 'error');
+            } finally { this.setButtonLoading(saveBtn, false); }
+        });
+    }
+
+    collectInvoiceForm() {
+        const f = document.getElementById('invForm');
+        const fd = new FormData(f);
+        const items = [];
+        let i=0; while (fd.has(`desc_${i}`)) { items.push({ description: (fd.get(`desc_${i}`)||'').trim(), sac: (fd.get(`sac_${i}`)||'').trim(), qty: Number(fd.get(`qty_${i}`)||0), unit: (fd.get(`unit_${i}`)||'').trim(), price: Number(fd.get(`price_${i}`)||0) }); i++; }
+        return {
+            number: fd.get('number'), date: fd.get('date'), vendor_name: fd.get('vendor_name'), vendor_gstin: (fd.get('vendor_gstin')||'').trim(), vendor_pan: (fd.get('vendor_pan')||'').trim(), vendor_address: (fd.get('vendor_address')||'').trim(), cgst: Number(fd.get('cgst')||0), sgst: Number(fd.get('sgst')||0), igst: Number(fd.get('igst')||0), items, po_ref: (fd.get('po_ref')||'').trim()
+        };
+    }
+
+    validateInvoicePayload(p) {
+        if (!p.vendor_name || !p.vendor_name.trim()) return { valid:false, message:'Vendor name is required' };
+        if (!Array.isArray(p.items) || p.items.length===0) return { valid:false, message:'At least one item is required' };
+        for (const [idx,it] of p.items.entries()) {
+            if (!it.description || !it.description.trim()) return { valid:false, message:`Item ${idx+1}: description is required` };
+            if (!(it.qty>0)) return { valid:false, message:`Item ${idx+1}: quantity must be > 0` };
+            if (!(it.price>=0)) return { valid:false, message:`Item ${idx+1}: price must be >= 0` };
+            if (it.sac && !/^[0-9A-Za-z]{4,8}$/.test(it.sac)) return { valid:false, message:`Item ${idx+1}: HSN/SAC invalid` };
+        }
+        for (const t of ['cgst','sgst','igst']) { if (p[t]<0 || p[t]>28) return { valid:false, message:`${t.toUpperCase()} should be between 0 and 28` }; }
+        return { valid:true };
+    }
+
+    mapInvoicePayloadToDoc(p) {
+        return {
+            number: p.number, date: p.date, vendor: { name: p.vendor_name, gstin: p.vendor_gstin, pan: p.vendor_pan, address: p.vendor_address }, company: this.data.company, items: p.items.map(it=>({ description: it.description, sac: it.sac, qty: it.qty, unit: it.unit, price: it.price })), taxes: { cgst: p.cgst, sgst: p.sgst, igst: p.igst }, custom_fields: [{ label:'PO Ref', value: p.po_ref }].filter(x=>x.value)
+        };
+    }
+
+    async createInvoiceAPI(payload) {
+        const base = this.getApiBase();
+        const res = await fetch(`${base}/api/invoices`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json?.error?.message||'API error');
+        return json.data;
     }
 
     createInvoice() {
