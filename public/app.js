@@ -722,7 +722,8 @@ class ODICFinanceSystem {
             const res = await fetch(`${base.replace(/\/$/, '')}/api/health`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            setState('online', `Backend API: ${data.status}`);
+            const status = (data && data.data && data.data.status) ? data.data.status : (data && data.status ? data.status : 'healthy');
+            setState('online', `Backend API: ${status}`);
         } catch (err) {
             console.warn('Backend health check failed', err);
             setState('error', 'Backend API: Unreachable');
@@ -736,6 +737,7 @@ class ODICFinanceSystem {
         this.updateUserInfo();
         this.navigateToScreen('dashboard');
         this.loadAllData();
+        this.setupVendorsUiIfPresent && this.setupVendorsUiIfPresent();
         this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
@@ -970,7 +972,7 @@ class ODICFinanceSystem {
         try {
             const base = this.getApiBase();
             if (base) {
-                const { items, total } = await this.fetchVendorsFromAPI({ page: this.state.pagination.vendors.page, size: this.state.pagination.vendors.size });
+                const { items, total } = await this.fetchVendorsFromAPI({ page: this.state.pagination.vendors.page, size: this.state.pagination.vendors.size, search: (this.state.filters.vendorSearch || ''), status: (this.state.filters.vendorStatus || '') });
                 this.state.apiVendors = { items, total };
             } else {
                 this.state.apiVendors = null;
@@ -981,6 +983,7 @@ class ODICFinanceSystem {
         }
         this.loadVendorsTable();
         this.updateVendorsCount();
+        this.renderVendorsPagination && this.renderVendorsPagination();
     }
 
     /**
@@ -992,7 +995,7 @@ class ODICFinanceSystem {
 
         const vendors = (this.state.apiVendors?.items && this.state.apiVendors.items.length)
             ? this.state.apiVendors.items.map(this.mapApiVendorToUi)
-            : this.data.vendors.slice(0, this.state.pagination.vendors.size)
+            : (() => { const start = (this.state.pagination.vendors.page - 1) * this.state.pagination.vendors.size; const end = start + this.state.pagination.vendors.size; return this.data.vendors.slice(start, end); })()
 
         tbody.innerHTML = vendors.map(vendor => `
             <tr>
@@ -1005,7 +1008,7 @@ class ODICFinanceSystem {
                 <td>
                     <div>
                         <strong>${vendor.companyName}</strong>
-                        ${vendor.tags ? `<div style="margin-top: 4px;">${vendor.tags.map(tag => `<span style="background: var(--color-bg-1); padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-right: 4px;">${tag}</span>`).join('')}</div>` : ''}
+                        ${(vendor.tags && vendor.tags.length) ? `<div style="margin-top: 4px;">${vendor.tags.map(tag => `<span style=\"background: var(--color-bg-1); padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-right: 4px;\">${tag}</span>`).join('')}</div>` : ''}
                     </div>
                 </td>
                 <td>${vendor.gstin}</td>
@@ -1023,14 +1026,14 @@ class ODICFinanceSystem {
                 <td>${vendor.createdDate}</td>
                 <td class="actions-col">
                     <div style="display: flex; gap: 4px;">
-                        <button class="btn btn--outline btn--sm" title="View Details">
+                        <button class="btn btn--outline btn--sm vendor-view" data-id="${vendor.id}" title="View Details">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn btn--secondary btn--sm" title="Edit">
+                        <button class="btn btn--secondary btn--sm vendor-edit" data-id="${vendor.id}" title="Edit Vendor">
                             <i class="fas fa-edit"></i>
                         </button>
                         ${vendor.status === 'pending' ? 
-                            `<button class="btn btn--success btn--sm" title="Approve">
+                            `<button class="btn btn--success btn--sm vendor-approve" data-id="${vendor.id}" title="Approve">
                                 <i class="fas fa-check"></i>
                             </button>` : ''}
                     </div>
@@ -1051,13 +1054,15 @@ class ODICFinanceSystem {
         const size = this.state.pagination.vendors.size;
         const usingApi = !!this.state.apiVendors;
         const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
-        const pageCount = usingApi ? (this.state.apiVendors?.items?.length || 0) : Math.min(size, total);
+        const pageCount = usingApi ? (this.state.apiVendors?.items?.length || 0) : Math.min(size, Math.max(0, total - (page - 1) * size));
         if (countElement) {
             countElement.textContent = `${total}`;
         }
         if (totalElement) totalElement.textContent = `${total}`;
-        if (rangeStart) rangeStart.textContent = `${(page - 1) * size + 1}`;
-        if (rangeEnd) rangeEnd.textContent = `${(page - 1) * size + pageCount}`;
+        const startVal = total === 0 ? 0 : ((page - 1) * size + 1);
+        const endVal = total === 0 ? 0 : ((page - 1) * size + Math.max(0, pageCount));
+        if (rangeStart) rangeStart.textContent = `${startVal}`;
+        if (rangeEnd) rangeEnd.textContent = `${endVal}`;
     }
 
     /**
@@ -1518,6 +1523,520 @@ class ODICFinanceSystem {
     updatePaymentChart() { this.showToast('Chart updated', 'info'); }
     toggleTrendsView() { this.showToast('Trends view toggled', 'info'); }
     refreshWorkflows() { this.showToast('Workflows refreshed', 'info'); }
+
+    // Vendors: lightweight UI wiring (page size, search, status, pagination)
+    setupVendorsUiIfPresent() {
+        const pageSizeSel = document.getElementById('vendorsPageSize');
+        if (pageSizeSel && !pageSizeSel._odicBound) {
+            pageSizeSel._odicBound = true;
+            pageSizeSel.addEventListener('change', async (e) => {
+                const size = parseInt(e.target.value, 10) || 25;
+                this.state.pagination.vendors.size = size;
+                this.state.pagination.vendors.page = 1;
+                await this.loadVendorsData();
+            });
+        }
+        const searchInput = document.getElementById('vendorSearchInput');
+        if (searchInput && !searchInput._odicBound) {
+            searchInput._odicBound = true;
+            let t;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(t);
+                t = setTimeout(async () => {
+                    this.state.filters.vendorSearch = (e.target.value || '').trim();
+                    this.state.pagination.vendors.page = 1;
+                    await this.loadVendorsData();
+                }, 300);
+            });
+        }
+        const statusSel = document.getElementById('vendorStatusFilter');
+        if (statusSel && !statusSel._odicBound) {
+            statusSel._odicBound = true;
+            statusSel.addEventListener('change', async (e) => {
+                this.state.filters.vendorStatus = (e.target.value || '').trim();
+                this.state.pagination.vendors.page = 1;
+                await this.loadVendorsData();
+            });
+        }
+        const addBtn = document.getElementById('addVendorBtn');
+        if (addBtn && !addBtn._odicBound) {
+            addBtn._odicBound = true;
+            addBtn.addEventListener('click', () => this.openVendorForm('create'));
+        }
+        const tbody = document.getElementById('vendorsTableBody');
+        if (tbody && !tbody._odicBound) {
+            tbody._odicBound = true;
+            tbody.addEventListener('click', (e) => {
+                const editBtn = e.target.closest('.vendor-edit');
+                const viewBtn = e.target.closest('.vendor-view');
+                if (editBtn) {
+                    const id = Number(editBtn.dataset.id);
+                    const vendor = this.getVendorById(id);
+                    this.openVendorForm('edit', vendor);
+                } else if (viewBtn) {
+                    const id = Number(viewBtn.dataset.id);
+                    const vendor = this.getVendorById(id);
+                    this.viewVendorDetails(vendor);
+                }
+            });
+        }
+    }
+
+    renderVendorsPagination() {
+        const container = document.getElementById('vendorsPagination');
+        if (!container) return;
+        const page = this.state.pagination.vendors.page;
+        const size = this.state.pagination.vendors.size;
+        const usingApi = !!this.state.apiVendors;
+        const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+        const prevPage = clamp(page - 1, 1, totalPages);
+        const nextPage = clamp(page + 1, 1, totalPages);
+        const pages = [];
+        const start = clamp(page - 2, 1, totalPages);
+        const end = clamp(page + 2, 1, totalPages);
+        for (let i = start; i <= end; i++) pages.push(i);
+        container.innerHTML = `
+            <button class="btn btn--outline btn--sm" data-page="${prevPage}" ${page===1?'disabled':''}>Prev</button>
+            ${start>1?'<span style="padding:0 6px;">…</span>':''}
+            ${pages.map(p => `<button class="btn btn--${p===page?'primary':'outline'} btn--sm" data-page="${p}">${p}</button>`).join('')}
+            ${end<totalPages?'<span style="padding:0 6px;">…</span>':''}
+            <button class="btn btn--outline btn--sm" data-page="${nextPage}" ${page===totalPages?'disabled':''}>Next</button>
+        `;
+        container.querySelectorAll('button[data-page]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const target = parseInt(btn.getAttribute('data-page'), 10);
+                await this.goToVendorsPage(target);
+            });
+        });
+    }
+
+    async goToVendorsPage(page) {
+        const size = this.state.pagination.vendors.size;
+        const usingApi = !!this.state.apiVendors;
+        const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const newPage = Math.max(1, Math.min(page, totalPages));
+        if (newPage !== this.state.pagination.vendors.page) {
+            this.state.pagination.vendors.page = newPage;
+            await this.loadVendorsData();
+        }
+    }
+
+    // Vendor helpers
+    getVendorById(id) {
+        if (this.state.apiVendors && Array.isArray(this.state.apiVendors.items)) {
+            const found = this.state.apiVendors.items.find(v => v.id === id);
+            return found ? this.mapApiVendorToUi(found) : null;
+        }
+        return this.data.vendors.find(v => v.id === id) || null;
+    }
+
+    openVendorForm(mode = 'create', vendor = null) {
+        const isEdit = mode === 'edit' && vendor;
+        const title = isEdit ? 'Edit Vendor' : 'Add New Vendor';
+        const v = vendor || { companyName: '', legalName: '', gstin: '', pan: '', state: '', pinCode: '', contactPerson: '', contactNumber: '', email: '', businessType: '', status: 'pending', rating: 0, tags: [] };
+        const body = `
+            <form id="vendorForm" class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Company Name *</label>
+                    <input type="text" name="company_name" class="form-control" value="${v.companyName || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Legal Name</label>
+                    <input type="text" name="legal_name" class="form-control" value="${v.legalName || ''}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">GSTIN</label>
+                    <input type="text" name="gstin" class="form-control" value="${v.gstin || ''}" maxlength="15">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PAN</label>
+                    <input type="text" name="pan" class="form-control" value="${v.pan || ''}" maxlength="10">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">State</label>
+                    <input type="text" name="state" class="form-control" value="${v.state || ''}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PIN Code</label>
+                    <input type="text" name="pin_code" class="form-control" value="${v.pinCode || ''}" maxlength="6">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contact Person</label>
+                    <input type="text" name="contact_person" class="form-control" value="${v.contactPerson || ''}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contact Number</label>
+                    <input type="text" name="contact_number" class="form-control" value="${v.contactNumber || ''}" maxlength="10">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" name="email" class="form-control" value="${v.email || ''}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Business Type</label>
+                    <select name="business_type" class="form-control">
+                        <option value="">Choose</option>
+                        ${['Service Provider','Distributor','Trader','OEM','Manufacturer'].map(opt => `<option ${v.businessType===opt?'selected':''} value="${opt}">${opt}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select name="status" class="form-control">
+                        ${['pending','approved','rejected','suspended'].map(opt => `<option ${v.status===opt?'selected':''} value="${opt}">${opt}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rating (0-5)</label>
+                    <input type="number" step="0.1" min="0" max="5" name="rating" class="form-control" value="${v.rating || 0}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tags (comma separated)</label>
+                    <input type="text" name="tags" class="form-control" value="${Array.isArray(v.tags)?v.tags.join(', '):''}">
+                </div>
+            </form>
+        `;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Cancel</button>
+            <button id="vendorSaveBtn" class="btn btn--primary">${isEdit ? 'Update' : 'Create'}</button>
+        `;
+        this.openModal(title, body, footer);
+        const saveBtn = document.getElementById('vendorSaveBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                const form = document.getElementById('vendorForm');
+                const payload = this.collectVendorForm(form);
+                const validation = this.validateVendorPayload(payload);
+                if (!validation.valid) { this.showToast(validation.message, 'error'); return; }
+                try {
+                    this.setButtonLoading(saveBtn, true);
+                    const base = this.getApiBase();
+                    if (base) {
+                        if (isEdit) await this.updateVendorAPI(vendor.id, payload); else await this.createVendorAPI(payload);
+                    } else {
+                        // local fallback
+                        if (isEdit) {
+                            const idx = this.data.vendors.findIndex(x => x.id === vendor.id);
+                            if (idx >= 0) this.data.vendors[idx] = { ...this.data.vendors[idx], ...this.mapApiVendorToUi({ id: vendor.id, ...payload }) };
+                        } else {
+                            const newId = Math.max(0, ...this.data.vendors.map(x => x.id)) + 1;
+                            this.data.vendors.unshift({ id: newId, ...this.mapApiVendorToUi({ id: newId, ...payload }) });
+                        }
+                        this.saveData('odicFinanceData', { ...this.data });
+                    }
+                    this.showToast(isEdit ? 'Vendor updated' : 'Vendor created', 'success');
+                    this.closeModal();
+                    await this.loadVendorsData();
+                } catch (e) {
+                    console.error(e);
+                    this.showToast(e.message || 'Failed to save vendor', 'error');
+                } finally {
+                    this.setButtonLoading(saveBtn, false);
+                }
+            });
+        }
+    }
+
+    collectVendorForm(form) {
+        const fd = new FormData(form);
+        const payload = Object.fromEntries(fd.entries());
+        // normalize fields
+        if (payload.rating !== undefined) payload.rating = Number(payload.rating);
+        if (payload.tags) payload.tags = payload.tags.split(',').map(s => s.trim()).filter(Boolean);
+        // Map camel fields not present in form are already in payload as snake_case
+        return payload;
+    }
+
+    validateVendorPayload(p) {
+        if (!p.company_name || !p.company_name.trim()) return { valid: false, message: 'Company name is required' };
+        if (p.email && !this.isValidEmail(p.email)) return { valid: false, message: 'Invalid email address' };
+        if (p.gstin && p.gstin.length !== 15) return { valid: false, message: 'GSTIN should be 15 characters' };
+        if (p.pan && p.pan.length !== 10) return { valid: false, message: 'PAN should be 10 characters' };
+        return { valid: true };
+    }
+
+    async createVendorAPI(payload) {
+        const base = this.getApiBase();
+        const res = await fetch(`${base}/api/vendors`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json?.error?.message || 'API error');
+        return json.data;
+    }
+
+    async updateVendorAPI(id, payload) {
+        const base = this.getApiBase();
+        const res = await fetch(`${base}/api/vendors/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json?.error?.message || 'API error');
+        return json.data;
+    }
+
+    viewVendorDetails(vendor) {
+        if (!vendor) return;
+        const title = 'Vendor Details';
+        const body = `
+            <div>
+                <h4>${vendor.companyName}</h4>
+                <p><strong>GSTIN:</strong> ${vendor.gstin || '—'}</p>
+                <p><strong>PAN:</strong> ${vendor.pan || '—'}</p>
+                <p><strong>State:</strong> ${vendor.state || '—'}</p>
+                <p><strong>Status:</strong> ${vendor.status}</p>
+                ${vendor.tags?.length ? `<p><strong>Tags:</strong> ${vendor.tags.join(', ')}</p>` : ''}
+            </div>`;
+        const footer = `<button class="btn btn--primary" onclick="odic.closeModal()">Close</button>`;
+        this.openModal(title, body, footer);
+    }
+
+    // Modal helpers
+    openModal(title, bodyHtml, footerHtml = '') {
+        const overlay = document.getElementById('modalOverlay');
+        const t = document.getElementById('modalTitle');
+        const b = document.getElementById('modalBody');
+        const f = document.getElementById('modalFooter');
+        if (overlay && t && b && f) {
+            t.textContent = title;
+            b.innerHTML = bodyHtml;
+            f.innerHTML = footerHtml;
+            overlay.classList.remove('hidden');
+        }
+    }
+
+    closeModal() {
+        const overlay = document.getElementById('modalOverlay');
+        if (overlay) overlay.classList.add('hidden');
+    }
+
+    // Document numbering helpers
+    formatFinancialYear(date = new Date()) {
+        const d = new Date(date);
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const startYear = month >= 4 ? year : year - 1;
+        const endYearShort = String((startYear + 1) % 100).padStart(2, '0');
+        return `${startYear}-${endYearShort}`;
+    }
+
+    formatDocumentNumber(format = 'ODI/{YYYY-YY}/{NNNN}', seq = 1, date = new Date()) {
+        const fy = this.formatFinancialYear(date);
+        const yyyy = String(new Date(date).getFullYear());
+        const yy = yyyy.slice(-2);
+        const nnnn = String(seq).padStart(4, '0');
+        return format
+            .replace('{YYYY-YY}', fy)
+            .replace('{YYYY}', yyyy)
+            .replace('{YY}', yy)
+            .replace('{NNNN}', nnnn);
+    }
+
+    // Print/export templates
+    showPOTemplates() {
+        const sample = this.samplePO();
+        const html = this.renderPOToPrint(sample);
+        const body = `<div style="max-height: 70vh; overflow:auto; background:#fff; padding:16px; border:1px solid var(--color-border)">${html}</div>`;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Close</button>
+            <button class="btn btn--primary" onclick="odic.printPO()">Print A4</button>
+        `;
+        this.openModal('PO Template Preview', body, footer);
+    }
+
+    printPO() {
+        const sample = this.samplePO();
+        this.showPrintView(this.renderPOToPrint(sample));
+    }
+
+    createInvoice() {
+        const sample = this.sampleInvoice();
+        const html = this.renderInvoiceToPrint(sample);
+        const body = `<div style="max-height: 70vh; overflow:auto; background:#fff; padding:16px; border:1px solid var(--color-border)">${html}</div>`;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Close</button>
+            <button class="btn btn--primary" onclick="odic.printInvoice()">Print A4</button>
+        `;
+        this.openModal('Invoice Template Preview', body, footer);
+    }
+
+    printInvoice() {
+        const sample = this.sampleInvoice();
+        this.showPrintView(this.renderInvoiceToPrint(sample));
+    }
+
+    showPrintView(innerHtml) {
+        const wrap = document.getElementById('printView');
+        const content = document.getElementById('printContent');
+        if (wrap && content) {
+            content.innerHTML = innerHtml;
+            wrap.classList.add('active');
+            setTimeout(() => window.print(), 50);
+            setTimeout(() => wrap.classList.remove('active'), 500);
+        }
+    }
+
+    samplePO() {
+        const seq = 32;
+        const number = this.formatDocumentNumber('ODI/{YYYY-YY}/{NNNN}', seq);
+        return {
+            number,
+            date: new Date().toISOString().split('T')[0],
+            vendor: {
+                name: 'Tech Solutions India Pvt Ltd',
+                gstin: '09ABCDE1234F1Z5',
+                pan: 'ABCDE1234F',
+                address: 'Plot 123, Sector 62, Noida, Uttar Pradesh - 201301'
+            },
+            company: this.data.company,
+            items: [
+                { description: 'HP LaserJet Pro M404dn Printer', hsn: '8443', qty: 5, unit: 'pcs', price: 18500 },
+                { description: 'Canon G3010 All-in-one Ink Tank Printer', hsn: '8443', qty: 3, unit: 'pcs', price: 14500 }
+            ],
+            taxes: { cgst: 9, sgst: 9, igst: 0 },
+            terms: ['Delivery within 7 days', 'Warranty: 1 year manufacturer warranty', 'Payment: 30 days credit'],
+            custom_fields: { project: 'HQ Upgrade', requester: 'IT Team' }
+        };
+    }
+
+    sampleInvoice() {
+        const seq = 1;
+        const number = this.formatDocumentNumber('INV/{YYYY-YY}/{NNNN}', seq);
+        return {
+            number,
+            date: new Date().toISOString().split('T')[0],
+            vendor: {
+                name: 'INSTANT PROCUREMENT SERVICES PRIVATE LIMITED',
+                gstin: '07AADCI9794D1Z8',
+                pan: 'AADCI9794D',
+                address: '1/19-B, Asaf Ali Road, Central Delhi, Delhi - 110002'
+            },
+            company: this.data.company,
+            items: [
+                { description: 'Annual Maintenance Contract - Printers', sac: '9987', qty: 1, unit: 'job', price: 150000 }
+            ],
+            taxes: { cgst: 9, sgst: 9, igst: 0 },
+            custom_fields: [{ label: 'PO Ref', value: 'ODI/2025-26/0031' }, { label: 'Delivery', value: 'Onsite' }]
+        };
+    }
+
+    renderPOToPrint(po) {
+        const subtotal = po.items.reduce((s, it) => s + it.qty * it.price, 0);
+        const cgst = ((po.taxes?.cgst||0) / 100) * subtotal;
+        const sgst = ((po.taxes?.sgst||0) / 100) * subtotal;
+        const igst = ((po.taxes?.igst||0) / 100) * subtotal;
+        const total = Math.round(subtotal + cgst + sgst + igst);
+        const custom = this.renderCustomFields(po.custom_fields);
+        return `
+        <div class="a4">
+          <div class="doc-header">
+            <div>
+              <h2>Purchase Order</h2>
+              <div>No: <strong>${po.number}</strong></div>
+              <div>Date: ${po.date}</div>
+            </div>
+            <div class="company-block">
+              <strong>${po.company.name}</strong><br>
+              GSTIN: ${po.company.gstin}<br>
+              ${po.company.address}
+            </div>
+          </div>
+          <div class="doc-party">
+            <div>
+              <h4>Vendor</h4>
+              <div><strong>${po.vendor.name}</strong></div>
+              <div>GSTIN: ${po.vendor.gstin}</div>
+              <div>PAN: ${po.vendor.pan}</div>
+              <div>${po.vendor.address}</div>
+            </div>
+          </div>
+          ${custom}
+          <table class="doc-table">
+            <thead>
+              <tr><th>#</th><th>Description</th><th>HSN/SAC</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
+            </thead>
+            <tbody>
+              ${po.items.map((it, i) => `<tr><td>${i+1}</td><td>${it.description}</td><td>${it.hsn||it.sac||''}</td><td>${it.qty}</td><td>${it.unit||''}</td><td>${this.formatCurrency(it.price)}</td><td>${this.formatCurrency(it.qty*it.price)}</td></tr>`).join('')}
+            </tbody>
+            <tfoot>
+              <tr><td colspan="6" class="text-right">Sub Total</td><td>${this.formatCurrency(subtotal)}</td></tr>
+              ${po.taxes?.cgst?`<tr><td colspan="6" class="text-right">CGST ${po.taxes.cgst}%</td><td>${this.formatCurrency(cgst)}</td></tr>`:''}
+              ${po.taxes?.sgst?`<tr><td colspan="6" class="text-right">SGST ${po.taxes.sgst}%</td><td>${this.formatCurrency(sgst)}</td></tr>`:''}
+              ${po.taxes?.igst?`<tr><td colspan="6" class="text-right">IGST ${po.taxes.igst}%</td><td>${this.formatCurrency(igst)}</td></tr>`:''}
+              <tr><td colspan="6" class="text-right"><strong>Total</strong></td><td><strong>${this.formatCurrency(total)}</strong></td></tr>
+            </tfoot>
+          </table>
+          ${po.terms?.length ? `<div class="terms"><h4>Terms & Conditions</h4><ol>${po.terms.map(t => `<li>${t}</li>`).join('')}</ol></div>` : ''}
+          <div class="signature-block">
+            <div>
+              <div>For ${po.company.name}</div>
+              <div style="margin-top:60px">Authorised Signatory</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    renderInvoiceToPrint(inv) {
+        const subtotal = inv.items.reduce((s, it) => s + it.qty * it.price, 0);
+        const cgst = ((inv.taxes?.cgst||0) / 100) * subtotal;
+        const sgst = ((inv.taxes?.sgst||0) / 100) * subtotal;
+        const igst = ((inv.taxes?.igst||0) / 100) * subtotal;
+        const total = Math.round(subtotal + cgst + sgst + igst);
+        const custom = this.renderCustomFields(inv.custom_fields);
+        return `
+        <div class="a4">
+          <div class="doc-header">
+            <div>
+              <h2>Invoice</h2>
+              <div>No: <strong>${inv.number}</strong></div>
+              <div>Date: ${inv.date}</div>
+            </div>
+            <div class="company-block">
+              <strong>${inv.company.name}</strong><br>
+              GSTIN: ${inv.company.gstin}<br>
+              ${inv.company.address}
+            </div>
+          </div>
+          <div class="doc-party">
+            <div>
+              <h4>Supplier</h4>
+              <div><strong>${inv.vendor.name}</strong></div>
+              <div>GSTIN: ${inv.vendor.gstin}</div>
+              <div>PAN: ${inv.vendor.pan}</div>
+              <div>${inv.vendor.address}</div>
+            </div>
+          </div>
+          ${custom}
+          <table class="doc-table">
+            <thead>
+              <tr><th>#</th><th>Description</th><th>HSN/SAC</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
+            </thead>
+            <tbody>
+              ${inv.items.map((it, i) => `<tr><td>${i+1}</td><td>${it.description}</td><td>${it.hsn||it.sac||''}</td><td>${it.qty}</td><td>${it.unit||''}</td><td>${this.formatCurrency(it.price)}</td><td>${this.formatCurrency(it.qty*it.price)}</td></tr>`).join('')}
+            </tbody>
+            <tfoot>
+              <tr><td colspan="6" class="text-right">Sub Total</td><td>${this.formatCurrency(subtotal)}</td></tr>
+              ${inv.taxes?.cgst?`<tr><td colspan="6" class="text-right">CGST ${inv.taxes.cgst}%</td><td>${this.formatCurrency(cgst)}</td></tr>`:''}
+              ${inv.taxes?.sgst?`<tr><td colspan="6" class="text-right">SGST ${inv.taxes.sgst}%</td><td>${this.formatCurrency(sgst)}</td></tr>`:''}
+              ${inv.taxes?.igst?`<tr><td colspan="6" class="text-right">IGST ${inv.taxes.igst}%</td><td>${this.formatCurrency(igst)}</td></tr>`:''}
+              <tr><td colspan="6" class="text-right"><strong>Total</strong></td><td><strong>${this.formatCurrency(total)}</strong></td></tr>
+            </tfoot>
+          </table>
+          <div class="signature-block">
+            <div>
+              <div>For ${inv.company.name}</div>
+              <div style="margin-top:60px">Authorised Signatory</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    renderCustomFields(cf) {
+        if (!cf) return '';
+        const entries = Array.isArray(cf) ? cf : Object.entries(cf).map(([label, value]) => ({ label, value }));
+        if (!entries.length) return '';
+        return `<div class="custom-fields">${entries.map(e => `<div class="cf-row"><span>${e.label}</span><strong>${e.value}</strong></div>`).join('')}</div>`;
+    }
 }
 
 // Initialize the application

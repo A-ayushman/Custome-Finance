@@ -8,7 +8,7 @@ INSERT INTO roles (name, level, permissions) VALUES
 
 -- Insert default admin user (password: admin123)
 INSERT INTO users (email, password_hash, role_id, full_name) VALUES 
-('admin@odic-international.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 5, 'System Administrator');
+('admin@odicinternational.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 5, 'System Administrator');
 
 -- Insert GST Rates
 INSERT INTO gst_rates (rate, description) VALUES 
