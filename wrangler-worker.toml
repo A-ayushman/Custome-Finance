@@ -1,6 +1,7 @@
 name = "odic-finance-api"
 main = "workers-site/index.js"
 compatibility_date = "2025-09-17"
+account_id = "c59323d98c963ded9bac4a1d6a29ce75"
 
 [env.production]
 vars = { ENVIRONMENT = "production" }
