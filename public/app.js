@@ -1612,7 +1612,7 @@ class ODICFinanceSystem {
                     break;
                 case 'create-po':
                     this.navigateToScreen('purchase-orders');
-                    this.showPOTemplates();
+                    this.openPOForm('create');
                     break;
                 case 'process-payment':
                     this.navigateToScreen('payments');
@@ -2162,7 +2162,19 @@ class ODICFinanceSystem {
                 this.loadDashboardData();
             } catch(e) {
                 console.error(e);
-                this.showToast(e.message||'Failed to save PO', 'error');
+                // Local fallback when API is unavailable
+                try {
+                    const newId = (this.data.purchaseOrders?.length||0) + 1;
+                    this.data.purchaseOrders = this.data.purchaseOrders || [];
+                    this.data.purchaseOrders.unshift({ id:newId, ...this.mapPOPayloadToDoc(payload)});
+                    this.saveData('odicFinanceData', { ...this.data });
+                    this.showToast('Purchase Order saved locally (offline)', 'warning');
+                    this.closeModal();
+                    this.loadDashboardData();
+                } catch(e2) {
+                    console.error('Local fallback failed', e2);
+                    this.showToast(e.message||'Failed to save PO', 'error');
+                }
             } finally { this.setButtonLoading(saveBtn, false); }
         });
     }
@@ -2329,7 +2341,19 @@ class ODICFinanceSystem {
                 this.loadDashboardData();
             } catch(e) {
                 console.error(e);
-                this.showToast(e.message||'Failed to save Invoice', 'error');
+                // Local fallback when API is unavailable
+                try {
+                    const newId = (this.data.invoices?.length||0) + 1;
+                    this.data.invoices = this.data.invoices || [];
+                    this.data.invoices.unshift({ id:newId, ...this.mapInvoicePayloadToDoc(payload)});
+                    this.saveData('odicFinanceData', { ...this.data });
+                    this.showToast('Invoice saved locally (offline)', 'warning');
+                    this.closeModal();
+                    this.loadDashboardData();
+                } catch(e2) {
+                    console.error('Local fallback failed', e2);
+                    this.showToast(e.message||'Failed to save Invoice', 'error');
+                }
             } finally { this.setButtonLoading(saveBtn, false); }
         });
     }
@@ -2372,7 +2396,7 @@ class ODICFinanceSystem {
         return json.data;
     }
 
-    createInvoice() {
+    createInvoicePreview() {
         const sample = this.sampleInvoice();
         const html = this.renderInvoiceToPrint(sample);
         const body = `<div style="max-height: 70vh; overflow:auto; background:#fff; padding:16px; border:1px solid var(--color-border)">${html}</div>`;
