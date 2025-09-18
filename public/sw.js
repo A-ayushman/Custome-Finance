@@ -3,7 +3,7 @@
 // - Network-first for /api/* requests
 // - Navigation fallback for SPA deep links
 
-const STATIC_CACHE = 'odic-static-v3';
+const STATIC_CACHE = 'odic-static-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
