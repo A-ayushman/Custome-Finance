@@ -965,7 +965,20 @@ class ODICFinanceSystem {
     /**
      * Load vendors data
      */
-    loadVendorsData() {
+    async loadVendorsData() {
+        // Try to load from backend API first, then gracefully fall back to local demo data
+        try {
+            const base = this.getApiBase();
+            if (base) {
+                const { items, total } = await this.fetchVendorsFromAPI({ page: this.state.pagination.vendors.page, size: this.state.pagination.vendors.size });
+                this.state.apiVendors = { items, total };
+            } else {
+                this.state.apiVendors = null;
+            }
+        } catch (e) {
+            console.warn('Falling back to local vendors data due to API error:', e);
+            this.state.apiVendors = null;
+        }
         this.loadVendorsTable();
         this.updateVendorsCount();
     }
@@ -977,7 +990,9 @@ class ODICFinanceSystem {
         const tbody = document.getElementById('vendorsTableBody');
         if (!tbody) return;
 
-        const vendors = this.data.vendors.slice(0, 25); // First 25 for demo
+        const vendors = (this.state.apiVendors?.items && this.state.apiVendors.items.length)
+            ? this.state.apiVendors.items.map(this.mapApiVendorToUi)
+            : this.data.vendors.slice(0, this.state.pagination.vendors.size)
 
         tbody.innerHTML = vendors.map(vendor => `
             <tr>
@@ -1029,9 +1044,20 @@ class ODICFinanceSystem {
      */
     updateVendorsCount() {
         const countElement = document.getElementById('vendorsCount');
+        const totalElement = document.getElementById('vendorTotal');
+        const rangeStart = document.getElementById('vendorRangeStart');
+        const rangeEnd = document.getElementById('vendorRangeEnd');
+        const page = this.state.pagination.vendors.page;
+        const size = this.state.pagination.vendors.size;
+        const usingApi = !!this.state.apiVendors;
+        const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
+        const pageCount = usingApi ? (this.state.apiVendors?.items?.length || 0) : Math.min(size, total);
         if (countElement) {
-            countElement.textContent = this.data.vendors.length;
+            countElement.textContent = `${total}`;
         }
+        if (totalElement) totalElement.textContent = `${total}`;
+        if (rangeStart) rangeStart.textContent = `${(page - 1) * size + 1}`;
+        if (rangeEnd) rangeEnd.textContent = `${(page - 1) * size + pageCount}`;
     }
 
     /**
@@ -1328,6 +1354,46 @@ class ODICFinanceSystem {
             info: 'fa-info-circle'
         };
         return icons[type] || 'fa-info-circle';
+    }
+
+    // Backend API helpers
+    getApiBase() {
+        const meta = document.querySelector('meta[name="api-base-url"]');
+        const base = (window.ODIC_API_BASE_URL || (meta && meta.content) || '').trim();
+        return base ? base.replace(/\/$/, '') : '';
+    }
+
+    async fetchVendorsFromAPI({ page = 1, size = 25, search = '', status = '' } = {}) {
+        const base = this.getApiBase();
+        if (!base) throw new Error('API base not configured');
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('size', String(size));
+        if (search) params.set('search', search);
+        if (status) params.set('status', status);
+        const url = `${base}/api/vendors?${params.toString()}`;
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json?.success) throw new Error(json?.error?.message || 'API error');
+        const data = json.data || {};
+        return { items: Array.isArray(data.items) ? data.items : [], total: Number(data.total || 0) };
+    }
+
+    mapApiVendorToUi(api) {
+        return {
+            id: api.id,
+            companyName: api.company_name || api.legal_name || '—',
+            legalName: api.legal_name || '',
+            gstin: api.gstin || '',
+            pan: api.pan || '',
+            state: api.state || '',
+            businessType: api.business_type || '',
+            status: api.status || 'pending',
+            rating: typeof api.rating === 'number' ? api.rating : 0,
+            createdDate: (api.created_at || '').split('T')[0] || '',
+            tags: Array.isArray(api.tags) ? api.tags : (api.tags ? (() => { try { const t = JSON.parse(api.tags); return Array.isArray(t) ? t : []; } catch(_) { return []; } })() : []
+        };
     }
 
     // Data persistence
