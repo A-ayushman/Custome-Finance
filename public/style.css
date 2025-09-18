@@ -741,6 +741,32 @@ select.form-control {
 /* ODIC Finance System v2.1.0 - Production CSS with 8 Premium Themes */
 /* Enterprise Finance Management Platform - Complete Stylesheet */
 
+/* Print A4 styles */
+@media print {
+  body { background: #fff !important; }
+  .screen, .navbar, .sidebar, .notification-panel, .theme-modal, #modalOverlay { display: none !important; }
+  #printView { display: block !important; position: static !important; }
+}
+
+.print-view { display: none; }
+.print-view.active { display: block; position: fixed; inset: 0; background: #f5f5f5; padding: 16px; overflow: auto; z-index: 10000; }
+
+.a4 { width: 210mm; min-height: 297mm; margin: 0 auto; background: #fff; color: #000; padding: 16mm; box-shadow: 0 0 0 1px #ddd; }
+@page { size: A4; margin: 12mm; }
+
+.doc-header { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 12px; }
+.company-block { text-align: right; max-width: 50%; }
+.doc-party { display: flex; justify-content: space-between; margin: 12px 0; }
+.doc-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.doc-table th, .doc-table td { border: 1px solid #333; padding: 6px 8px; font-size: 12px; }
+.doc-table th { background: #eee; }
+.text-right { text-align: right; }
+.terms { margin-top: 12px; }
+.terms ol { margin: 0; padding-left: 18px; }
+.signature-block { display: flex; justify-content: flex-end; margin-top: 24px; }
+.custom-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 8px 0; }
+.custom-fields .cf-row { display: flex; justify-content: space-between; border-bottom: 1px dashed #bbb; padding: 4px 0; }
+
 :root {
   /* Primitive Color Tokens */
   --color-white: rgba(255, 255, 255, 1);
