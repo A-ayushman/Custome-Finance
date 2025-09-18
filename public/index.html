@@ -1803,10 +1803,15 @@
                 const _b = document.querySelector('meta[name="build"]');
                 const _v = document.querySelector('meta[name="version"]');
                 const _ver = (_b && _b.content) || (_v && _v.content) || String(Date.now());
-                const _swUrl = `/sw.js?v=${encodeURIComponent(_ver)}`;
-                navigator.serviceWorker.register(_swUrl)
-                    .then(registration => console.log('SW registered:', registration))
-                    .catch(error => console.log('SW registration failed:', error));
+                const _primary = `/sw.v${encodeURIComponent(_ver)}.js`;
+                const _fallback = `/sw.js?v=${encodeURIComponent(_ver)}`;
+                // Try versioned filename first (bypasses any edge cache entirely), then fallback to query-param version
+                navigator.serviceWorker.register(_primary)
+                    .then(reg => console.log('SW registered (versioned path):', reg))
+                    .catch(() => navigator.serviceWorker.register(_fallback)
+                        .then(reg => console.log('SW registered (fallback):', reg))
+                        .catch(error => console.log('SW registration failed:', error))
+                    );
             }
         })();
     </script>
