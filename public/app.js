@@ -737,6 +737,7 @@ class ODICFinanceSystem {
         this.updateUserInfo();
         this.navigateToScreen('dashboard');
         this.loadAllData();
+        this.setupVendorsUiIfPresent && this.setupVendorsUiIfPresent();
         this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
@@ -971,7 +972,7 @@ class ODICFinanceSystem {
         try {
             const base = this.getApiBase();
             if (base) {
-                const { items, total } = await this.fetchVendorsFromAPI({ page: this.state.pagination.vendors.page, size: this.state.pagination.vendors.size });
+                const { items, total } = await this.fetchVendorsFromAPI({ page: this.state.pagination.vendors.page, size: this.state.pagination.vendors.size, search: (this.state.filters.vendorSearch || ''), status: (this.state.filters.vendorStatus || '') });
                 this.state.apiVendors = { items, total };
             } else {
                 this.state.apiVendors = null;
@@ -1521,6 +1522,84 @@ class ODICFinanceSystem {
     updatePaymentChart() { this.showToast('Chart updated', 'info'); }
     toggleTrendsView() { this.showToast('Trends view toggled', 'info'); }
     refreshWorkflows() { this.showToast('Workflows refreshed', 'info'); }
+
+    // Vendors: lightweight UI wiring (page size, search, status, pagination)
+    setupVendorsUiIfPresent() {
+        const pageSizeSel = document.getElementById('vendorsPageSize');
+        if (pageSizeSel && !pageSizeSel._odicBound) {
+            pageSizeSel._odicBound = true;
+            pageSizeSel.addEventListener('change', async (e) => {
+                const size = parseInt(e.target.value, 10) || 25;
+                this.state.pagination.vendors.size = size;
+                this.state.pagination.vendors.page = 1;
+                await this.loadVendorsData();
+            });
+        }
+        const searchInput = document.getElementById('vendorSearchInput');
+        if (searchInput && !searchInput._odicBound) {
+            searchInput._odicBound = true;
+            let t;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(t);
+                t = setTimeout(async () => {
+                    this.state.filters.vendorSearch = (e.target.value || '').trim();
+                    this.state.pagination.vendors.page = 1;
+                    await this.loadVendorsData();
+                }, 300);
+            });
+        }
+        const statusSel = document.getElementById('vendorStatusFilter');
+        if (statusSel && !statusSel._odicBound) {
+            statusSel._odicBound = true;
+            statusSel.addEventListener('change', async (e) => {
+                this.state.filters.vendorStatus = (e.target.value || '').trim();
+                this.state.pagination.vendors.page = 1;
+                await this.loadVendorsData();
+            });
+        }
+    }
+
+    renderVendorsPagination() {
+        const container = document.getElementById('vendorsPagination');
+        if (!container) return;
+        const page = this.state.pagination.vendors.page;
+        const size = this.state.pagination.vendors.size;
+        const usingApi = !!this.state.apiVendors;
+        const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+        const prevPage = clamp(page - 1, 1, totalPages);
+        const nextPage = clamp(page + 1, 1, totalPages);
+        const pages = [];
+        const start = clamp(page - 2, 1, totalPages);
+        const end = clamp(page + 2, 1, totalPages);
+        for (let i = start; i <= end; i++) pages.push(i);
+        container.innerHTML = `
+            <button class="btn btn--outline btn--sm" data-page="${prevPage}" ${page===1?'disabled':''}>Prev</button>
+            ${start>1?'<span style="padding:0 6px;">…</span>':''}
+            ${pages.map(p => `<button class="btn btn--${p===page?'primary':'outline'} btn--sm" data-page="${p}">${p}</button>`).join('')}
+            ${end<totalPages?'<span style="padding:0 6px;">…</span>':''}
+            <button class="btn btn--outline btn--sm" data-page="${nextPage}" ${page===totalPages?'disabled':''}>Next</button>
+        `;
+        container.querySelectorAll('button[data-page]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const target = parseInt(btn.getAttribute('data-page'), 10);
+                await this.goToVendorsPage(target);
+            });
+        });
+    }
+
+    async goToVendorsPage(page) {
+        const size = this.state.pagination.vendors.size;
+        const usingApi = !!this.state.apiVendors;
+        const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const newPage = Math.max(1, Math.min(page, totalPages));
+        if (newPage !== this.state.pagination.vendors.page) {
+            this.state.pagination.vendors.page = newPage;
+            await this.loadVendorsData();
+        }
+    }
 }
 
 // Initialize the application
