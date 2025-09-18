@@ -14,3 +14,11 @@ __MACOSX/
 # Build outputs
 dist/
 .cache/
+
+# Archives and deployment artifacts
+*.zip
+*.tar.gz
+*.tgz
+
+# Windows system files
+Thumbs.db

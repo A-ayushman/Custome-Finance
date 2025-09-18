@@ -2638,6 +2638,412 @@ class ODICFinanceSystem {
         if (!entries.length) return '';
         return `<div class="custom-fields">${entries.map(e => `<div class="cf-row"><span>${e.label}</span><strong>${e.value}</strong></div>`).join('')}</div>`;
     }
+
+    // ===== Import/Export and Utility helpers =====
+    downloadFile(filename, content, mime = 'text/plain') {
+        try {
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 0);
+        } catch (e) {
+            console.error('downloadFile failed', e);
+            this.showToast('Download failed', 'error');
+        }
+    }
+
+    datasetToCSV(items, headers) {
+        const esc = (v) => {
+            if (v === null || v === undefined) return '';
+            const s = String(v);
+            const needsQuotes = /[",\n]/.test(s);
+            const escaped = s.replace(/"/g, '""');
+            return needsQuotes ? `"${escaped}"` : escaped;
+        };
+        const cols = headers || (items.length ? Object.keys(items[0]) : []);
+        const rows = [cols.join(',')];
+        for (const it of items) {
+            rows.push(cols.map(k => esc(it[k])).join(','));
+        }
+        return rows.join('\n');
+    }
+
+    datasetToHTMLTable(items, headers, title = 'Data Export') {
+        const cols = headers || (items.length ? Object.keys(items[0]) : []);
+        const thead = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+        const tbody = items.map(it => `<tr>${cols.map(c=>`<td>${it[c]!==undefined?it[c]:''}</td>`).join('')}</tr>`).join('');
+        return `<!doctype html><html><head><meta charset=\"utf-8\"><title>${title}</title></head><body><table border=\"1\">${thead}${tbody}</table></body></html>`;
+    }
+
+    parseCSV(text) {
+        // Simple CSV parser supporting quoted fields
+        const rows = [];
+        let i = 0, cur = '', field = '', inQuotes = false;
+        const pushField = () => { cur += field; field = ''; };
+        const pushRow = () => { rows.push(cur); cur = ''; };
+        const result = [];
+        let line = [];
+        for (let idx = 0; idx < text.length; idx++) {
+            const ch = text[idx];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (text[idx + 1] === '"') { field += '"'; idx++; }
+                    else { inQuotes = false; }
+                } else { field += ch; }
+            } else {
+                if (ch === '"') { inQuotes = true; }
+                else if (ch === ',') { line.push(field); field = ''; }
+                else if (ch === '\n' || ch === '\r') {
+                    if (ch === '\r' && text[idx + 1] === '\n') idx++; // handle CRLF
+                    line.push(field); field = '';
+                    result.push(line);
+                    line = [];
+                } else { field += ch; }
+            }
+        }
+        if (field.length || line.length) { line.push(field); result.push(line); }
+        if (!result.length) return [];
+        const headers = result[0].map(h => String(h).trim());
+        return result.slice(1).filter(r => r.some(c => String(c).trim().length)).map(r => {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? String(r[i]).trim() : ''; });
+            return obj;
+        });
+    }
+
+    // Vendors export/import
+    exportVendors() {
+        const list = (this.state.apiVendors?.items?.length ? this.state.apiVendors.items.map(this.mapApiVendorToUi) : this.data.vendors) || [];
+        const items = list.map(v => ({
+            id: v.id,
+            company_name: v.companyName,
+            legal_name: v.legalName || '',
+            gstin: v.gstin || '',
+            pan: v.pan || '',
+            state: v.state || '',
+            pin_code: v.pinCode || '',
+            contact_person: v.contactPerson || '',
+            contact_number: v.contactNumber || '',
+            email: v.email || '',
+            business_type: v.businessType || '',
+            status: v.status || '',
+            rating: typeof v.rating === 'number' ? v.rating : '',
+            tags: Array.isArray(v.tags) ? v.tags.join('|') : ''
+        }));
+        const csv = this.datasetToCSV(items);
+        this.downloadFile(`vendors_${this.buildNumber}.csv`, csv, 'text/csv');
+        this.showToast('Vendors exported as CSV', 'success');
+    }
+
+    async importVendors() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv,text/csv';
+        input.addEventListener('change', async () => {
+            const file = input.files[0];
+            if (!file) return;
+            const text = await file.text();
+            const rows = this.parseCSV(text);
+            if (!rows.length) { this.showToast('No rows found in CSV', 'warning'); return; }
+            let success = 0, failed = 0;
+            for (const row of rows) {
+                const payload = {
+                    company_name: row.company_name || row.companyName || row.Company || '',
+                    legal_name: row.legal_name || row.legalName || '',
+                    gstin: row.gstin || '',
+                    pan: row.pan || '',
+                    state: row.state || '',
+                    pin_code: row.pin_code || row.pin || '',
+                    contact_person: row.contact_person || '',
+                    contact_number: row.contact_number || '',
+                    email: row.email || '',
+                    business_type: row.business_type || '',
+                    status: row.status || 'pending',
+                    rating: row.rating ? Number(row.rating) : 0,
+                    tags: row.tags ? String(row.tags).split(/\||,/).map(s=>s.trim()).filter(Boolean) : []
+                };
+                const v = this.validateVendorPayload(payload);
+                if (!v.valid) { failed++; continue; }
+                try {
+                    const base = this.getApiBase();
+                    if (base) await this.createVendorAPI(payload);
+                    else {
+                        const newId = Math.max(0, ...this.data.vendors.map(x => x.id)) + 1;
+                        this.data.vendors.unshift({ id: newId, ...this.mapApiVendorToUi({ id: newId, ...payload }) });
+                    }
+                    success++;
+                } catch (e) {
+                    console.warn('Vendor import error', e); failed++;
+                    // local fallback
+                    try {
+                        const newId = Math.max(0, ...this.data.vendors.map(x => x.id)) + 1;
+                        this.data.vendors.unshift({ id: newId, ...this.mapApiVendorToUi({ id: newId, ...payload }) });
+                        success++;
+                    } catch { failed++; }
+                }
+            }
+            this.saveData('odicFinanceData', { ...this.data });
+            await this.loadVendorsData();
+            this.showToast(`Vendor import completed: ${success} success, ${failed} failed`, failed? 'warning':'success', 6000);
+        });
+        input.click();
+    }
+
+    exportPOs() {
+        const list = this.data.purchaseOrders || [];
+        const items = list.map(po => ({
+            number: po.number,
+            date: po.date,
+            vendor_name: po.vendor?.name || '',
+            vendor_gstin: po.vendor?.gstin || '',
+            vendor_pan: po.vendor?.pan || '',
+            vendor_address: po.vendor?.address || '',
+            cgst: po.taxes?.cgst || 0,
+            sgst: po.taxes?.sgst || 0,
+            igst: po.taxes?.igst || 0,
+            items: JSON.stringify(po.items||[])
+        }));
+        const csv = this.datasetToCSV(items);
+        this.downloadFile(`purchase_orders_${this.buildNumber}.csv`, csv, 'text/csv');
+        this.showToast('Purchase Orders exported as CSV', 'success');
+    }
+
+    exportInvoices() {
+        const list = this.data.invoices || [];
+        const items = list.map(inv => ({
+            number: inv.number,
+            date: inv.date,
+            vendor_name: inv.vendor?.name || '',
+            vendor_gstin: inv.vendor?.gstin || '',
+            vendor_pan: inv.vendor?.pan || '',
+            vendor_address: inv.vendor?.address || '',
+            cgst: inv.taxes?.cgst || 0,
+            sgst: inv.taxes?.sgst || 0,
+            igst: inv.taxes?.igst || 0,
+            po_ref: (inv.custom_fields||[]).find(x=>x.label==='PO Ref')?.value || '',
+            items: JSON.stringify(inv.items||[])
+        }));
+        const csv = this.datasetToCSV(items);
+        this.downloadFile(`invoices_${this.buildNumber}.csv`, csv, 'text/csv');
+        this.showToast('Invoices exported as CSV', 'success');
+    }
+
+    async importPOs() {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.csv,text/csv';
+        input.addEventListener('change', async () => {
+            const file = input.files[0]; if (!file) return;
+            const text = await file.text(); const rows = this.parseCSV(text);
+            if (!rows.length) { this.showToast('No rows found in CSV', 'warning'); return; }
+            let ok = 0, bad = 0;
+            for (const row of rows) {
+                const items = row.items ? (()=>{ try { const j = JSON.parse(row.items); return Array.isArray(j)?j:[]; } catch { return []; } })() : [];
+                const payload = {
+                    number: row.number || this.formatDocumentNumber('ODI/{YYYY-YY}/{NNNN}', (this.data.purchaseOrders?.length||0)+1),
+                    date: row.date || new Date().toISOString().split('T')[0],
+                    vendor_name: row.vendor_name || '',
+                    vendor_gstin: row.vendor_gstin || '',
+                    vendor_pan: row.vendor_pan || '',
+                    vendor_address: row.vendor_address || '',
+                    cgst: row.cgst ? Number(row.cgst) : 0,
+                    sgst: row.sgst ? Number(row.sgst) : 0,
+                    igst: row.igst ? Number(row.igst) : 0,
+                    items
+                };
+                const v = this.validatePOPayload(payload);
+                if (!v.valid) { bad++; continue; }
+                try {
+                    const base = this.getApiBase();
+                    if (base) await this.createPOAPI(payload);
+                    else {
+                        const newId = (this.data.purchaseOrders?.length||0) + 1;
+                        this.data.purchaseOrders = this.data.purchaseOrders || [];
+                        this.data.purchaseOrders.unshift({ id:newId, ...this.mapPOPayloadToDoc(payload)});
+                    }
+                    ok++;
+                } catch (e) {
+                    console.warn('PO import error', e); bad++;
+                    try {
+                        const newId = (this.data.purchaseOrders?.length||0) + 1;
+                        this.data.purchaseOrders = this.data.purchaseOrders || [];
+                        this.data.purchaseOrders.unshift({ id:newId, ...this.mapPOPayloadToDoc(payload)});
+                        ok++;
+                    } catch { bad++; }
+                }
+            }
+            this.saveData('odicFinanceData', { ...this.data });
+            this.showToast(`PO import: ${ok} success, ${bad} failed`, bad? 'warning':'success', 6000);
+        });
+        input.click();
+    }
+
+    async importInvoices() {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.csv,text/csv';
+        input.addEventListener('change', async () => {
+            const file = input.files[0]; if (!file) return;
+            const text = await file.text(); const rows = this.parseCSV(text);
+            if (!rows.length) { this.showToast('No rows found in CSV', 'warning'); return; }
+            let ok = 0, bad = 0;
+            for (const row of rows) {
+                const items = row.items ? (()=>{ try { const j = JSON.parse(row.items); return Array.isArray(j)?j:[]; } catch { return []; } })() : [];
+                const payload = {
+                    number: row.number || this.formatDocumentNumber('INV/{YYYY-YY}/{NNNN}', (this.data.invoices?.length||0)+1),
+                    date: row.date || new Date().toISOString().split('T')[0],
+                    vendor_name: row.vendor_name || '',
+                    vendor_gstin: row.vendor_gstin || '',
+                    vendor_pan: row.vendor_pan || '',
+                    vendor_address: row.vendor_address || '',
+                    cgst: row.cgst ? Number(row.cgst) : 0,
+                    sgst: row.sgst ? Number(row.sgst) : 0,
+                    igst: row.igst ? Number(row.igst) : 0,
+                    items,
+                    po_ref: row.po_ref || ''
+                };
+                // Feature-flag enforcement
+                if (this.isThreeWayMatchEnabled() && !payload.po_ref) { bad++; continue; }
+                const v = this.validateInvoicePayload(payload);
+                if (!v.valid) { bad++; continue; }
+                try {
+                    const base = this.getApiBase();
+                    if (base) await this.createInvoiceAPI(payload);
+                    else {
+                        const newId = (this.data.invoices?.length||0) + 1;
+                        this.data.invoices = this.data.invoices || [];
+                        this.data.invoices.unshift({ id:newId, ...this.mapInvoicePayloadToDoc(payload)});
+                    }
+                    ok++;
+                } catch (e) {
+                    console.warn('Invoice import error', e); bad++;
+                    try {
+                        const newId = (this.data.invoices?.length||0) + 1;
+                        this.data.invoices = this.data.invoices || [];
+                        this.data.invoices.unshift({ id:newId, ...this.mapInvoicePayloadToDoc(payload)});
+                        ok++;
+                    } catch { bad++; }
+                }
+            }
+            this.saveData('odicFinanceData', { ...this.data });
+            this.showToast(`Invoice import: ${ok} success, ${bad} failed`, bad? 'warning':'success', 6000);
+        });
+        input.click();
+    }
+
+    downloadTemplates() {
+        const vendorsTmpl = this.datasetToCSV([
+            { company_name:'INSTANT PROCUREMENT SERVICES PRIVATE LIMITED', legal_name:'INSTANT PROCUREMENT SERVICES PRIVATE LIMITED', gstin:'07AADCI9794D1Z8', pan:'AADCI9794D', state:'Delhi', pin_code:'110002', contact_person:'Rajesh Kumar', contact_number:'9876543210', email:'info@instantprocurement.com', business_type:'Service Provider', status:'approved', rating:'4.8', tags:'Technology|Hardware' }
+        ]);
+        this.downloadFile('vendors_template.csv', vendorsTmpl, 'text/csv');
+        const poTmpl = this.datasetToCSV([
+            { number:'', date:'2025-09-18', vendor_name:'Tech Solutions India Pvt Ltd', vendor_gstin:'09ABCDE1234F1Z5', vendor_pan:'ABCDE1234F', vendor_address:'Plot 123, Sector 62, Noida, Uttar Pradesh - 201301', cgst:'9', sgst:'9', igst:'0', items:'[{\"description\":\"HP LaserJet Pro M404dn Printer\",\"hsn\":\"8443\",\"qty\":5,\"unit\":\"pcs\",\"price\":18500}]' }
+        ]);
+        this.downloadFile('purchase_orders_template.csv', poTmpl, 'text/csv');
+        const invTmpl = this.datasetToCSV([
+            { number:'', date:'2025-09-18', vendor_name:'INSTANT PROCUREMENT SERVICES PRIVATE LIMITED', vendor_gstin:'07AADCI9794D1Z8', vendor_pan:'AADCI9794D', vendor_address:'Delhi, India', cgst:'9', sgst:'9', igst:'0', po_ref:'ODI/2025-26/0031', items:'[{\"description\":\"AMC - Printers\",\"sac\":\"9987\",\"qty\":1,\"unit\":\"job\",\"price\":150000}]' }
+        ]);
+        this.downloadFile('invoices_template.csv', invTmpl, 'text/csv');
+        this.showToast('Templates downloaded (vendors, POs, invoices)', 'success');
+    }
+
+    exportCSV() {
+        const body = `
+            <div class=\"form-group\"><label class=\"form-label\">Dataset</label>
+                <select id=\"csvDataset\" class=\"form-control\">
+                    <option value=\"vendors\">Vendors</option>
+                    <option value=\"pos\">Purchase Orders</option>
+                    <option value=\"invoices\">Invoices</option>
+                </select>
+            </div>`;
+        const footer = `<button class=\"btn btn--outline\" onclick=\"odic.closeModal()\">Cancel</button>
+            <button class=\"btn btn--primary\" id=\"csvExportGo\">Export</button>`;
+        this.openModal('Export CSV', body, footer);
+        const btn = document.getElementById('csvExportGo');
+        btn.addEventListener('click', () => {
+            const val = document.getElementById('csvDataset').value;
+            this.closeModal();
+            if (val === 'vendors') this.exportVendors();
+            else if (val === 'pos') this.exportPOs();
+            else this.exportInvoices();
+        });
+    }
+
+    exportExcel() {
+        const body = `
+            <div class=\"form-group\"><label class=\"form-label\">Dataset</label>
+                <select id=\"xlsDataset\" class=\"form-control\">
+                    <option value=\"vendors\">Vendors</option>
+                    <option value=\"pos\">Purchase Orders</option>
+                    <option value=\"invoices\">Invoices</option>
+                </select>
+            </div>`;
+        const footer = `<button class=\"btn btn--outline\" onclick=\"odic.closeModal()\">Cancel</button>
+            <button class=\"btn btn--primary\" id=\"xlsExportGo\">Export</button>`;
+        this.openModal('Export Excel', body, footer);
+        const btn = document.getElementById('xlsExportGo');
+        btn.addEventListener('click', () => {
+            const val = document.getElementById('xlsDataset').value;
+            this.closeModal();
+            if (val === 'vendors') {
+                const list = (this.state.apiVendors?.items?.length ? this.state.apiVendors.items.map(this.mapApiVendorToUi) : this.data.vendors) || [];
+                const items = list.map(v => ({ id:v.id, company_name:v.companyName, gstin:v.gstin, pan:v.pan, state:v.state, status:v.status }));
+                const html = this.datasetToHTMLTable(items, null, 'Vendors');
+                this.downloadFile(`vendors_${this.buildNumber}.xls`, html, 'application/vnd.ms-excel');
+            } else if (val === 'pos') {
+                const list = this.data.purchaseOrders || [];
+                const items = list.map(po => ({ number:po.number, date:po.date, vendor:po.vendor?.name||'', total:(po.items||[]).reduce((s,it)=>s+it.qty*it.price,0) }));
+                const html = this.datasetToHTMLTable(items, null, 'POs');
+                this.downloadFile(`purchase_orders_${this.buildNumber}.xls`, html, 'application/vnd.ms-excel');
+            } else {
+                const list = this.data.invoices || [];
+                const items = list.map(inv => ({ number:inv.number, date:inv.date, vendor:inv.vendor?.name||'', total:(inv.items||[]).reduce((s,it)=>s+it.qty*it.price,0) }));
+                const html = this.datasetToHTMLTable(items, null, 'Invoices');
+                this.downloadFile(`invoices_${this.buildNumber}.xls`, html, 'application/vnd.ms-excel');
+            }
+            this.showToast('Excel exported', 'success');
+        });
+    }
+
+    exportPDF() {
+        const html = `<!doctype html><html><head><meta charset=\"utf-8\"><title>ODIC Export</title>
+        <style>body{font-family:Inter,system-ui,sans-serif} h2{margin:0 0 8px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:6px;text-align:left}</style>
+        </head><body>
+        <h2>ODIC Finance Export Summary</h2>
+        <p>Date: ${new Date().toLocaleString()}</p>
+        <h3>Vendors (${(this.state.apiVendors?.items?.length||this.data.vendors.length)})</h3>
+        <table><thead><tr><th>Company</th><th>GSTIN</th><th>PAN</th><th>State</th><th>Status</th></tr></thead><tbody>
+        ${(this.state.apiVendors?.items?.length ? this.state.apiVendors.items.map(this.mapApiVendorToUi) : this.data.vendors).slice(0,50).map(v => `<tr><td>${v.companyName}</td><td>${v.gstin||''}</td><td>${v.pan||''}</td><td>${v.state||''}</td><td>${v.status||''}</td></tr>`).join('')}
+        </tbody></table>
+        </body></html>`;
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(html); w.document.close(); setTimeout(()=>w.print(), 50); }
+        else { this.showToast('Popup blocked. Please allow popups to print.', 'warning'); }
+    }
+
+    // Vendor filters minimal wiring
+    clearVendorFilters() {
+        this.state.filters.vendorSearch = '';
+        this.state.filters.vendorStatus = '';
+        const s = document.getElementById('vendorSearchInput'); if (s) s.value='';
+        const st = document.getElementById('vendorStatusFilter'); if (st) st.value='';
+        this.state.pagination.vendors.page = 1;
+        this.loadVendorsData();
+    }
+
+    applyVendorFilters() {
+        const st = document.getElementById('vendorStatusFilter');
+        this.state.filters.vendorStatus = st ? (st.value||'') : '';
+        const s = document.getElementById('vendorSearchInput');
+        this.state.filters.vendorSearch = s ? (s.value||'') : '';
+        this.state.pagination.vendors.page = 1;
+        this.loadVendorsData();
+    }
 }
 
 // Initialize the application
