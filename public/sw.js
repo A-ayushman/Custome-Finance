@@ -5,11 +5,15 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k))
+    )).then(() => self.clients.claim())
+  );
 });
 
 // Basic cache strategy: cache-first for static; network-first for API
-const STATIC_CACHE = 'odic-static-v1';
+const STATIC_CACHE = 'odic-static-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -28,7 +32,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k))
+    )).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (event) => {
