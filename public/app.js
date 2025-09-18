@@ -20,6 +20,8 @@ class ODICFinanceSystem {
         
         // Enhanced data structures for production
         this.data = this.initializeData();
+        // Feature flags (persisted in localStorage)
+        this.features = this.loadFeatureFlags();
         
         // 8 Premium Enterprise Themes
         this.themes = [
@@ -759,7 +761,46 @@ class ODICFinanceSystem {
         // Initialize charts after DOM is ready
         setTimeout(() => {
             this.initializeCharts();
+            // Inject feature toggles shortly after main UI renders
+            setTimeout(() => { this.injectFeatureToggles && this.injectFeatureToggles(); }, 300);
         }, 500);
+    }
+
+    // Feature Flags
+    loadFeatureFlags() {
+        const saved = this.getSavedData('odicFeatureFlags');
+        const defaults = { threeWayMatch: false };
+        return saved ? { ...defaults, ...saved } : defaults;
+    }
+
+    saveFeatureFlags(flags) {
+        this.features = { ...this.features, ...flags };
+        this.saveData('odicFeatureFlags', this.features);
+    }
+
+    isThreeWayMatchEnabled() { return !!(this.features && this.features.threeWayMatch); }
+
+    injectFeatureToggles() {
+        // Add Three-way Match toggle into General Settings panel without altering static HTML
+        const panel = document.getElementById('general-settings');
+        if (!panel || panel._odicFeatureInjected) return;
+        panel._odicFeatureInjected = true;
+        const form = panel.querySelector('.settings-form') || panel;
+        const wrap = document.createElement('div');
+        wrap.className = 'form-group';
+        wrap.innerHTML = `
+            <label style=\"display:flex; align-items:center; gap:8px;\">
+                <input type=\"checkbox\" id=\"feature_three_way_match\" ${this.isThreeWayMatchEnabled() ? 'checked' : ''}>
+                <span>Enable Three-way Match (PO–Invoice–GRN)</span>
+            </label>
+            <small>When enabled, invoices must reference a valid PO. GRN validation will be added when Goods Receipt is introduced.</small>
+        `;
+        form.appendChild(wrap);
+        const cb = wrap.querySelector('#feature_three_way_match');
+        cb.addEventListener('change', () => {
+            this.saveFeatureFlags({ threeWayMatch: cb.checked });
+            this.showToast(`Three-way match ${cb.checked ? 'enabled' : 'disabled'}`,'info');
+        });
     }
 
     /**
@@ -2323,6 +2364,19 @@ class ODICFinanceSystem {
         });
         saveBtn.addEventListener('click', async ()=>{
             const payload = this.collectInvoiceForm();
+            // Enforce Three-way Match (PO reference) when feature is enabled
+            if (this.isThreeWayMatchEnabled()) {
+                if (!payload.po_ref || !payload.po_ref.trim()) {
+                    this.showToast('Three-way match is enabled: PO reference is required.', 'error');
+                    return;
+                }
+                const poExists = Array.isArray(this.data.purchaseOrders) && this.data.purchaseOrders.some(po => po.number === payload.po_ref.trim());
+                if (!poExists) {
+                    this.showToast('Three-way match: Referenced PO not found. Please enter a valid PO number.', 'error');
+                    return;
+                }
+                // TODO: GRN validation to be added when Goods Receipt is available
+            }
             const v = this.validateInvoicePayload(payload);
             if (!v.valid) { this.showToast(v.message, 'error'); return; }
             try {
