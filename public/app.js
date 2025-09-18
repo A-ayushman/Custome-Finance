@@ -22,6 +22,10 @@ class ODICFinanceSystem {
         this.data = this.initializeData();
         // Feature flags (persisted in localStorage)
         this.features = this.loadFeatureFlags();
+        // Tax regime and documentation config
+        this.taxRegime = this.getSavedData('odicTaxRegime') || 'NEW_TAX_REGIME_2025';
+        this.taxConfig = null;
+        this.docSchemas = {};
         
         // 8 Premium Enterprise Themes
         this.themes = [
@@ -758,6 +762,8 @@ class ODICFinanceSystem {
         this.setupDashboardKPIs && this.setupDashboardKPIs();
         this.setupPOInvoiceHandlers && this.setupPOInvoiceHandlers();
         this.checkBackendHealth && this.checkBackendHealth();
+        // Load taxation and documentation schemas
+        this.loadTaxAndDocs && this.loadTaxAndDocs();
         
         // Initialize charts after DOM is ready
         setTimeout(() => {
@@ -824,6 +830,104 @@ class ODICFinanceSystem {
             this.saveFeatureFlags({ requireGRN: grnCb.checked });
             this.showToast(`GRN requirement ${grnCb.checked ? 'enabled' : 'disabled'}`,'info');
         });
+
+
+    }
+
+    // === Taxation and Documentation System Integration ===
+    getFriendlyRegimeName() {
+        return this.taxRegime && String(this.taxRegime).startsWith('NEW') ? 'New (FY 2025-26)' : 'Old';
+    }
+
+    async loadTaxAndDocs() {
+        // Load tax configuration JSON (path can be overridden via <meta name="tax-config-path">)
+        try {
+            const metaPath = document.querySelector('meta[name="tax-config-path"]');
+            const path = (metaPath && metaPath.content) || '/data/indian_taxation_document_structure.json.txt';
+            const res = await fetch(path, { cache: 'no-cache' });
+            if (res.ok) {
+                this.taxConfig = await res.json();
+                console.log('Tax configuration loaded:', Object.keys(this.taxConfig||{}));
+            } else {
+                console.warn('Tax config not available:', res.status);
+            }
+        } catch (e) {
+            console.warn('Failed to load tax config', e);
+        }
+
+        // Load documentation schemas (CSV)
+        const loadCsv = async (p) => {
+            try {
+                const r = await fetch(p, { cache: 'no-cache' });
+                if (r.ok) { const t = await r.text(); return this.parseCSV(t); }
+            } catch (e) { console.warn('CSV load failed for', p, e); }
+            return null;
+        };
+        this.docSchemas = {
+            purchase_requisition: await loadCsv('/data/b9d7a2c5.csv'),
+            purchase_order: await loadCsv('/data/85619e00.csv'),
+            category_mapping: await loadCsv('/data/1f61c7f4.csv')
+        };
+        console.log('Doc schemas loaded:', Object.keys(this.docSchemas));
+
+        this.injectTaxRegimeUI && this.injectTaxRegimeUI();
+    }
+
+    injectTaxRegimeUI() {
+        // Navbar toggle button
+        const btn = document.getElementById('taxRegimeBtn');
+        if (btn && !btn._odicBound) {
+            btn._odicBound = true;
+            this.updateTaxRegimeButton();
+            btn.addEventListener('click', () => {
+                this.taxRegime = (this.taxRegime && String(this.taxRegime).startsWith('NEW')) ? 'OLD_TAX_REGIME' : 'NEW_TAX_REGIME_2025';
+                this.saveData('odicTaxRegime', this.taxRegime);
+                this.updateTaxRegimeButton();
+                this.onTaxRegimeChanged();
+                this.showToast(`Switched to ${this.getFriendlyRegimeName()} tax regime`, 'success');
+            });
+        }
+        // Settings > General select
+        const panel = document.getElementById('general-settings');
+        if (panel && !panel._odicTaxInjected) {
+            panel._odicTaxInjected = true;
+            const form = panel.querySelector('.settings-form') || panel;
+            const wrap = document.createElement('div');
+            wrap.className = 'form-group';
+            wrap.innerHTML = `
+                <label>Tax Regime</label>
+                <select id="taxRegimeSelect" class="form-control">
+                    <option value="NEW_TAX_REGIME_2025" ${this.taxRegime && String(this.taxRegime).startsWith('NEW') ? 'selected' : ''}>New (Default FY 2025-26)</option>
+                    <option value="OLD_TAX_REGIME" ${this.taxRegime && String(this.taxRegime).startsWith('OLD') ? 'selected' : ''}>Old</option>
+                </select>
+                <small>Stored per-device. Impacts labels and calculators. Does not change GST.</small>
+            `;
+            form.appendChild(wrap);
+            const sel = wrap.querySelector('#taxRegimeSelect');
+            sel.addEventListener('change', () => {
+                this.taxRegime = sel.value;
+                this.saveData('odicTaxRegime', this.taxRegime);
+                this.updateTaxRegimeButton();
+                this.onTaxRegimeChanged();
+                this.showToast(`Saved ${this.getFriendlyRegimeName()} tax regime`, 'success');
+            });
+        }
+    }
+
+    updateTaxRegimeButton() {
+        const btn = document.getElementById('taxRegimeBtn');
+        if (!btn) return;
+        const isNew = this.taxRegime && String(this.taxRegime).startsWith('NEW');
+        btn.innerHTML = `<i class="fas fa-percent"></i> <span>${isNew ? 'New' : 'Old'}</span>`;
+        btn.title = `Current Tax Regime: ${isNew ? 'New (FY 2025-26)' : 'Old'}`;
+    }
+
+    onTaxRegimeChanged() {
+        // Update any hints currently on screen
+        document.querySelectorAll('.tax-regime-hint').forEach(el => {
+            el.textContent = `Tax Regime: ${this.getFriendlyRegimeName()}`;
+        });
+
     }
 
     /**
@@ -1732,6 +1836,7 @@ class ODICFinanceSystem {
 
     showTDSCalculator() {
         const body = `
+            <div class="form-group"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
             <div class="form-grid">
                 <div class="form-group">
                     <label class="form-label">Amount (INR)</label>
@@ -2142,6 +2247,7 @@ class ODICFinanceSystem {
                 <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${p.taxes.cgst}"></div>
                 <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${p.taxes.sgst}"></div>
                 <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${p.taxes.igst}"></div>
+                <div class="form-group" style="grid-column:1/-1"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
                 <div class="form-group" style="grid-column:1/-1"><label class="form-label">Terms</label><textarea name="terms" class="form-control">${(p.terms||[]).join('\n')}</textarea></div>
             </form>
             <div id="poTotals" style="margin-top:8px; font-family:monospace"></div>
@@ -2321,6 +2427,7 @@ class ODICFinanceSystem {
                 <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${v.taxes.cgst}"></div>
                 <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${v.taxes.sgst}"></div>
                 <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${v.taxes.igst}"></div>
+                <div class="form-group" style="grid-column:1/-1"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
                 <div class="form-group"><label class="form-label">PO Reference</label><input type="text" name="po_ref" class="form-control"></div>
                 ${this.isThreeWayMatchEnabled() && this.features?.requireGRN ? `<div class="form-group"><label class="form-label">GRN Reference</label><input type="text" name="grn_ref" class="form-control" placeholder="Enter Goods Receipt Note number"></div>` : ''}
             </form>
