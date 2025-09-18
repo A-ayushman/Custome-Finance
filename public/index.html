@@ -1794,11 +1794,17 @@
 
     <!-- Service Worker Registration -->
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(registration => console.log('SW registered:', registration))
-                .catch(error => console.log('SW registration failed:', error));
-        }
+        (function(){
+            const params = new URLSearchParams(location.search);
+            const disable = params.get('nosw') === '1' || localStorage.getItem('odic_disable_sw') === '1';
+            if (disable) {
+                console.log('SW registration disabled via nosw=1 or odic_disable_sw');
+            } else if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => console.log('SW registered:', registration))
+                    .catch(error => console.log('SW registration failed:', error));
+            }
+        })();
     </script>
 </body>
 </html>
