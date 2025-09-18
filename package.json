@@ -9,9 +9,9 @@
     "deploy:pages": "wrangler pages deploy public --branch main",
     "deploy:worker": "wrangler deploy --config wrangler-worker.toml --env production",
     "db:create": "wrangler d1 create odic-finance-prod",
-    "db:migrate": "wrangler d1 migrations apply odic-finance-prod --remote",
-    "db:seed": "wrangler d1 execute odic-finance-prod --remote --file=./migrations/0002_seed_data.sql",
-    "db:seed:idempotent": "wrangler d1 execute odic-finance-prod --remote --file=./migrations/0005_seed_idempotent.sql"
+    "db:migrate": "wrangler d1 migrations apply odic-finance-prod --remote --config wrangler-worker.toml --env production",
+    "db:seed": "wrangler d1 execute odic-finance-prod --remote --config wrangler-worker.toml --env production --file=./migrations/0002_seed_data.sql",
+    "db:seed:idempotent": "wrangler d1 execute odic-finance-prod --remote --config wrangler-worker.toml --env production --file=./migrations/0005_seed_idempotent.sql"
   },
   "dependencies": {
     "hono": "^3.12.0"
