@@ -1,19 +1,9 @@
-// Minimal Service Worker for ODIC Finance System
-// Purpose: Avoid MIME errors and enable future enhancements
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
+// ODIC Finance System Service Worker v3
+// - Cache-first for static assets (App Shell)
+// - Network-first for /api/* requests
+// - Navigation fallback for SPA deep links
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k))
-    )).then(() => self.clients.claim())
-  );
-});
-
-// Basic cache strategy: cache-first for static; network-first for API
-const STATIC_CACHE = 'odic-static-v2';
+const STATIC_CACHE = 'odic-static-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -26,39 +16,55 @@ const STATIC_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE).then(cache => cache.addAll(STATIC_ASSETS)).catch(() => null)
+    caches.open(STATIC_CACHE)
+      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .catch(() => null)
   );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k))
-    )).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== STATIC_CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  const url = new URL(req.url);
   const isApi = url.pathname.startsWith('/api/');
+
+  // Network-first for API requests
   if (isApi) {
-    // network-first for API
     event.respondWith(
-      fetch(event.request).then(res => {
-        return res;
-      }).catch(() => caches.match(event.request))
+      fetch(req).then((res) => res).catch(() => caches.match(req))
     );
-  } else if (event.request.method === 'GET') {
-    // cache-first for static
-    event.respondWith(
-      caches.match(event.request).then(cached => {
-        return cached || fetch(event.request).then(res => {
-          const resClone = res.clone();
-          caches.open(STATIC_CACHE).then(cache => cache.put(event.request, resClone));
-          return res;
-        }).catch(() => cached);
-      })
-    );
+    return;
   }
+
+  if (req.method !== 'GET') return;
+
+  // SPA navigation fallback (for deep links)
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      caches.match('/index.html').then((cached) => cached || fetch(req))
+    );
+    return;
+  }
+
+  // Cache-first for static requests
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(req, resClone));
+          return res;
+        })
+        .catch(() => cached);
+    })
+  );
 });

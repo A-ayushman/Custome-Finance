@@ -1380,12 +1380,26 @@ class ODICFinanceSystem {
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        if (!json?.success) throw new Error(json?.error?.message || 'API error');
-        const data = json.data || {};
+        if (!json || json.success !== true) throw new Error((json && json.error && json.error.message) || 'API error');
+        const data = (json && json.data) || {};
         return { items: Array.isArray(data.items) ? data.items : [], total: Number(data.total || 0) };
     }
 
     mapApiVendorToUi(api) {
+        // Normalize tags to an array without using inline IIFEs (safer for older engines)
+        let tags = [];
+        if (Array.isArray(api.tags)) {
+            tags = api.tags;
+        } else if (api.tags) {
+            try {
+                const maybe = typeof api.tags === 'string' ? JSON.parse(api.tags) : api.tags;
+                if (Array.isArray(maybe)) tags = maybe; else tags = [];
+            } catch (e) {
+                tags = [];
+            }
+        }
+        const created = api.created_at || '';
+        const createdDate = created ? String(created).split('T')[0] : '';
         return {
             id: api.id,
             companyName: api.company_name || api.legal_name || '—',
@@ -1396,8 +1410,8 @@ class ODICFinanceSystem {
             businessType: api.business_type || '',
             status: api.status || 'pending',
             rating: typeof api.rating === 'number' ? api.rating : 0,
-            createdDate: (api.created_at || '').split('T')[0] || '',
-            tags: Array.isArray(api.tags) ? api.tags : (api.tags ? (() => { try { const t = JSON.parse(api.tags); return Array.isArray(t) ? t : []; } catch(_) { return []; } })() : []
+            createdDate,
+            tags
         };
     }
 
