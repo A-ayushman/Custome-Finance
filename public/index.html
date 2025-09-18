@@ -1800,7 +1800,11 @@
             if (disable) {
                 console.log('SW registration disabled via nosw=1 or odic_disable_sw');
             } else if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js')
+                const _b = document.querySelector('meta[name="build"]');
+                const _v = document.querySelector('meta[name="version"]');
+                const _ver = (_b && _b.content) || (_v && _v.content) || String(Date.now());
+                const _swUrl = `/sw.js?v=${encodeURIComponent(_ver)}`;
+                navigator.serviceWorker.register(_swUrl)
                     .then(registration => console.log('SW registered:', registration))
                     .catch(error => console.log('SW registration failed:', error));
             }
