@@ -3,7 +3,7 @@
 // - Network-first for /api/* requests
 // - Navigation fallback for SPA deep links
 
-const STATIC_CACHE = 'odic-static-v4';
+const STATIC_CACHE = 'odic-static-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -54,9 +54,22 @@ self.addEventListener('fetch', (event) => {
 
   // SPA navigation fallback (for deep links)
   if (req.mode === 'navigate') {
-    event.respondWith(
-      caches.match('/index.html').then((cached) => cached || fetch(req))
-    );
+    event.respondWith((async () => {
+      // If nosw=1 is present, bypass cache entirely for this navigation
+      if (url.searchParams.get('nosw') === '1') {
+        try { return await fetch(req); } catch (e) { return caches.match('/index.html'); }
+      }
+      const cached = await caches.match('/index.html');
+      try {
+        const res = await fetch(req);
+        // If successful, prefer network and update cache for next time
+        const resClone = res.clone();
+        caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', resClone));
+        return res;
+      } catch (e) {
+        return cached || Response.error();
+      }
+    })());
     return;
   }
 
