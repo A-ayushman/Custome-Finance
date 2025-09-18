@@ -715,6 +715,7 @@ class ODICFinanceSystem {
         const base = (window.ODIC_API_BASE_URL || (meta && meta.content) || '').trim();
         if (!base) {
             setState('warning', 'Backend API: Not configured');
+            this.state.apiAvailable = false;
             return;
         }
 
@@ -724,9 +725,11 @@ class ODICFinanceSystem {
             const data = await res.json();
             const status = (data && data.data && data.data.status) ? data.data.status : (data && data.status ? data.status : 'healthy');
             setState('online', `Backend API: ${status}`);
+            this.state.apiAvailable = true;
         } catch (err) {
             console.warn('Backend health check failed', err);
             setState('error', 'Backend API: Unreachable');
+            this.state.apiAvailable = false;
         }
     }
 
@@ -738,6 +741,8 @@ class ODICFinanceSystem {
         this.navigateToScreen('dashboard');
         this.loadAllData();
         this.setupVendorsUiIfPresent && this.setupVendorsUiIfPresent();
+        this.setupDashboardQuickActions && this.setupDashboardQuickActions();
+        this.setupDashboardKPIs && this.setupDashboardKPIs();
         this.checkBackendHealth && this.checkBackendHealth();
         
         // Initialize charts after DOM is ready
@@ -1528,6 +1533,124 @@ class ODICFinanceSystem {
         console.log(`Loading data for screen: ${screenName}`);
     }
 
+    // Dashboard quick actions and utilities
+    setupDashboardQuickActions() {
+        const container = document.querySelector('.quick-actions-grid');
+        if (!container || container._odicBound) return;
+        container._odicBound = true;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.quick-action-btn');
+            if (!btn) return;
+            const action = btn.getAttribute('data-action');
+            switch (action) {
+                case 'create-vendor':
+                    this.navigateToScreen('vendors');
+                    setTimeout(() => this.openVendorForm('create'), 50);
+                    break;
+                case 'create-invoice':
+                    this.navigateToScreen('invoices');
+                    this.createInvoice();
+                    break;
+                case 'create-po':
+                    this.navigateToScreen('purchase-orders');
+                    this.showPOTemplates();
+                    break;
+                case 'process-payment':
+                    this.navigateToScreen('payments');
+                    this.showToast('Open payment form coming soon!', 'info');
+                    break;
+                case 'bulk-approve':
+                    this.navigateToScreen('approvals');
+                    this.bulkApprove();
+                    break;
+                case 'export-reports':
+                    this.navigateToScreen('reports');
+                    this.generateReport && this.generateReport();
+                    break;
+                case 'tds-calculator':
+                    this.showTDSCalculator();
+                    break;
+                case 'advance-payment':
+                    this.navigateToScreen('payments');
+                    this.showToast('Advance payment flow coming soon!', 'info');
+                    break;
+                default:
+                    this.showToast('Feature coming soon!', 'info');
+            }
+        });
+    }
+
+    setupDashboardKPIs() {
+        const grid = document.querySelector('.kpi-grid');
+        if (!grid || grid._odicBound) return;
+        grid._odicBound = true;
+        grid.addEventListener('click', (e) => {
+            const card = e.target.closest('.kpi-card.clickable');
+            if (!card) return;
+            const action = card.getAttribute('data-action');
+            switch (action) {
+                case 'pending-approvals':
+                    this.navigateToScreen('approvals');
+                    break;
+                case 'payments-due':
+                    this.navigateToScreen('payments');
+                    break;
+                case 'vendor-onboarding':
+                    this.navigateToScreen('vendors');
+                    break;
+                case 'advances-available':
+                    this.navigateToScreen('payments');
+                    break;
+                default:
+                    this.showToast('Opening details...', 'info');
+            }
+        });
+    }
+
+    showTDSCalculator() {
+        const body = `
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Amount (INR)</label>
+                    <input type="number" id="tdsAmount" class="form-control" min="0" value="100000">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TDS Rate (%)</label>
+                    <select id="tdsRate" class="form-control">
+                        <option value="1">1% (194Q)</option>
+                        <option value="2">2% (194C)</option>
+                        <option value="5">5% (194J - no PAN)</option>
+                        <option value="10" selected>10% (194J)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TDS Amount</label>
+                    <input type="text" id="tdsValue" class="form-control" readonly>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Net Payable</label>
+                    <input type="text" id="tdsNet" class="form-control" readonly>
+                </div>
+            </div>
+        `;
+        const footer = `<button class="btn btn--primary" onclick="odic.closeModal()">Close</button>`;
+        this.openModal('TDS Calculator', body, footer);
+        const amt = document.getElementById('tdsAmount');
+        const rate = document.getElementById('tdsRate');
+        const val = document.getElementById('tdsValue');
+        const net = document.getElementById('tdsNet');
+        const recalc = () => {
+            const a = Number(amt.value || 0);
+            const r = Number(rate.value || 0);
+            const t = Math.round((a * r) / 100);
+            val.value = this.formatCurrency(t).replace(/^\u20B9/, '₹');
+            net.value = this.formatCurrency(Math.max(0, a - t)).replace(/^\u20B9/, '₹');
+        };
+        amt.addEventListener('input', recalc);
+        rate.addEventListener('change', recalc);
+        recalc();
+    }
+
     // Placeholder methods for production features
     refreshDashboard() { this.loadDashboardData(); this.showToast('Dashboard refreshed', 'success'); }
     showQuickActions() { this.showToast('Quick Actions - Coming soon!', 'info'); }
@@ -1745,7 +1868,27 @@ class ODICFinanceSystem {
                     await this.loadVendorsData();
                 } catch (e) {
                     console.error(e);
-                    this.showToast(e.message || 'Failed to save vendor', 'error');
+                    // Fallback to local storage when backend is unavailable or errors out
+                    try {
+                        const base = this.getApiBase();
+                        if (base) {
+                            console.warn('API unavailable, saving locally for demo.');
+                        }
+                        if (isEdit) {
+                            const idx = this.data.vendors.findIndex(x => x.id === vendor.id);
+                            if (idx >= 0) this.data.vendors[idx] = { ...this.data.vendors[idx], ...this.mapApiVendorToUi({ id: vendor.id, ...payload }) };
+                        } else {
+                            const newId = Math.max(0, ...this.data.vendors.map(x => x.id)) + 1;
+                            this.data.vendors.unshift({ id: newId, ...this.mapApiVendorToUi({ id: newId, ...payload }) });
+                        }
+                        this.saveData('odicFinanceData', { ...this.data });
+                        this.showToast((isEdit ? 'Vendor updated' : 'Vendor created') + ' (saved locally)', 'warning');
+                        this.closeModal();
+                        await this.loadVendorsData();
+                    } catch (e2) {
+                        console.error('Local fallback failed', e2);
+                        this.showToast(e.message || 'Failed to save vendor', 'error');
+                    }
                 } finally {
                     this.setButtonLoading(saveBtn, false);
                 }
