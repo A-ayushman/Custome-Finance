@@ -3,7 +3,7 @@
 // - Network-first for /api/* requests
 // - Navigation fallback for SPA deep links
 
-const STATIC_CACHE = 'odic-static-v3';
+const STATIC_CACHE = 'odic-static-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -21,6 +21,12 @@ self.addEventListener('install', (event) => {
       .catch(() => null)
   );
   self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {
