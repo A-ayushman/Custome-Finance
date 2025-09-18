@@ -992,7 +992,7 @@ class ODICFinanceSystem {
 
         const vendors = (this.state.apiVendors?.items && this.state.apiVendors.items.length)
             ? this.state.apiVendors.items.map(this.mapApiVendorToUi)
-            : this.data.vendors.slice(0, this.state.pagination.vendors.size)
+            : (() => { const start = (this.state.pagination.vendors.page - 1) * this.state.pagination.vendors.size; const end = start + this.state.pagination.vendors.size; return this.data.vendors.slice(start, end); })()
 
         tbody.innerHTML = vendors.map(vendor => `
             <tr>
@@ -1051,13 +1051,15 @@ class ODICFinanceSystem {
         const size = this.state.pagination.vendors.size;
         const usingApi = !!this.state.apiVendors;
         const total = usingApi ? (this.state.apiVendors?.total || 0) : this.data.vendors.length;
-        const pageCount = usingApi ? (this.state.apiVendors?.items?.length || 0) : Math.min(size, total);
+        const pageCount = usingApi ? (this.state.apiVendors?.items?.length || 0) : Math.min(size, Math.max(0, total - (page - 1) * size));
         if (countElement) {
             countElement.textContent = `${total}`;
         }
         if (totalElement) totalElement.textContent = `${total}`;
-        if (rangeStart) rangeStart.textContent = `${(page - 1) * size + 1}`;
-        if (rangeEnd) rangeEnd.textContent = `${(page - 1) * size + pageCount}`;
+        const startVal = total === 0 ? 0 : ((page - 1) * size + 1);
+        const endVal = total === 0 ? 0 : ((page - 1) * size + Math.max(0, pageCount));
+        if (rangeStart) rangeStart.textContent = `${startVal}`;
+        if (rangeEnd) rangeEnd.textContent = `${endVal}`;
     }
 
     /**
