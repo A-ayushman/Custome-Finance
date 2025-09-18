@@ -722,7 +722,8 @@ class ODICFinanceSystem {
             const res = await fetch(`${base.replace(/\/$/, '')}/api/health`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            setState('online', `Backend API: ${data.status}`);
+            const status = (data && data.data && data.data.status) ? data.data.status : (data && data.status ? data.status : 'healthy');
+            setState('online', `Backend API: ${status}`);
         } catch (err) {
             console.warn('Backend health check failed', err);
             setState('error', 'Backend API: Unreachable');
@@ -1005,7 +1006,7 @@ class ODICFinanceSystem {
                 <td>
                     <div>
                         <strong>${vendor.companyName}</strong>
-                        ${vendor.tags ? `<div style="margin-top: 4px;">${vendor.tags.map(tag => `<span style="background: var(--color-bg-1); padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-right: 4px;">${tag}</span>`).join('')}</div>` : ''}
+                        ${(vendor.tags && vendor.tags.length) ? `<div style="margin-top: 4px;">${vendor.tags.map(tag => `<span style=\"background: var(--color-bg-1); padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-right: 4px;\">${tag}</span>`).join('')}</div>` : ''}
                     </div>
                 </td>
                 <td>${vendor.gstin}</td>
