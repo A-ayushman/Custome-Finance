@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ODIC Finance System v2.1.1 - Enterprise Finance Management Platform</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <meta name="description" content="Enterprise Finance Management Platform for ODIC International - Complete PO, Invoice, Payment & Vendor Management">
+    <meta name="author" content="ODIC International">
+    <meta name="version" content="2.1.1">
+    <meta name="build" content="2025.09.18">
+    <!-- Backend API Base URL for Worker calls (optional) -->
+    <meta name="api-base-url" content="https://odic-finance-api-production.ayushman-singh.workers.dev">
+    
+    <!-- PWA Support -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Crect width=%22100%22 height=%22100%22 fill=%22%232563EB%22/%3E%3Ctext x=%2250%22 y=%2250%22 font-size=%2240%22 text-anchor=%22middle%22 dy=%22.1em%22 fill=%22white%22%3EO%3C/text%3E%3C/svg%3E">
+</head>
+<body data-version="2.1.1" data-build="2025.09.18">
+    <!-- Application Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <i class="fas fa-building"></i>
+                <div class="loading-pulse"></div>
+            </div>
+            <div class="loading-text">
+                <h2>ODIC Finance System</h2>
+                <p class="loading-version">Version 2.1.1 - Production Ready</p>
+                <p>Loading enterprise platform...</p>
+            </div>
+            <div class="loading-progress">
+                <div class="progress-bar"></div>
+                <div class="progress-text">Initializing system...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Enhanced Login Screen -->
+    <div id="loginScreen" class="screen active">
+        <div class="login-container">
+            <div class="login-header">
+                <div class="login-logo">
+                    <i class="fas fa-building"></i>
+                </div>
+                <h1>ODIC Finance System</h1>
+                <p>Professional Finance Management Platform</p>
+                <div class="system-info">
+                    <span>v2.1.1</span>
+                    <span>•</span>
+                    <span>Production Ready</span>
+                    <span>•</span>
+                    <span>Enterprise Edition</span>
+                </div>
+                <div class="login-features">
+                    <span><i class="fas fa-shield-alt"></i> Secure</span>
+                    <span><i class="fas fa-mobile-alt"></i> Mobile Ready</span>
+                    <span><i class="fas fa-chart-line"></i> Analytics</span>
+                    <span><i class="fas fa-cloud"></i> Cloud Native</span>
+                </div>
+            </div>
+            
+            <div class="login-form">
+                <div class="form-group">
+                    <label for="roleSelect">
+                        <i class="fas fa-user-tag"></i>
+                        Select User Role & Access Level
+                    </label>
+                    <select id="roleSelect" class="form-control" required>
+                        <option value="" disabled selected>Choose Your Access Level</option>
+                        <option value="L1">L1 - Payee (Execute Payments & Upload Proofs)</option>
+                        <option value="L2">L2 - User (Create PO/Vendors & Initiate Payments)</option>
+                        <option value="L3">L3 - Admin (Approve & Manage Operations)</option>
+                        <option value="L4">L4 - SuperAdmin (Full Control & Advanced Features)</option>
+                        <option value="L5">L5 - Owner (System Settings & Role Management)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="loginEmail">
+                        <i class="fas fa-envelope"></i>
+                        Email Address
+                    </label>
+                    <input type="email" id="loginEmail" class="form-control" 
+                           placeholder="Enter your corporate email" required autocomplete="email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="loginPassword">
+                        <i class="fas fa-lock"></i>
+                        Password
+                    </label>
+                    <div class="password-input">
+                        <input type="password" id="loginPassword" class="form-control" 
+                               placeholder="Enter your password" required autocomplete="current-password">
+                        <button type="button" class="password-toggle" onclick="odic.togglePassword()">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="password-strength" id="passwordStrength"></div>
+                </div>
+                
+                <div class="login-options">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="rememberMe">
+                        <span class="checkmark"></span>
+                        Keep me signed in for 30 days
+                    </label>
+                    <a href="#" class="forgot-password" onclick="odic.showForgotPassword()">Forgot Password?</a>
+                </div>
+                
+                <button id="loginBtn" class="btn btn--primary btn--full-width btn--lg">
+                    <i class="fas fa-sign-in-alt"></i>
+                    <span>Sign In to Enterprise Dashboard</span>
+                    <div class="btn-loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                </button>
+                
+                <div class="login-security">
+                    <i class="fas fa-shield-check"></i>
+                    <small>Enterprise-grade security. Your session is encrypted with TLS 1.3.</small>
+                </div>
+
+                <div class="demo-credentials">
+                    <details>
+                        <summary>Demo Credentials</summary>
+                        <div class="demo-list">
+                            <div><strong>L5 Owner:</strong> owner@odic.in / password123</div>
+                            <div><strong>L4 SuperAdmin:</strong> admin@odic.in / admin123</div>
+                            <div><strong>L3 Admin:</strong> manager@odic.in / manage123</div>
+                            <div><strong>L2 User:</strong> user@odic.in / user123</div>
+                            <div><strong>L1 Payee:</strong> payee@odic.in / pay123</div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Enhanced Theme Preview -->
+        <div class="theme-preview">
+            <div class="theme-preview-header">
+                <h3><i class="fas fa-palette"></i> Choose Your Theme</h3>
+                <p>8 professionally designed themes to match your preference</p>
+            </div>
+            <div class="theme-preview-grid" id="themePreviewGrid">
+                <!-- Theme options will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application Interface -->
+    <div id="mainApp" class="screen">
+        <!-- Enhanced Navigation Bar -->
+        <nav class="navbar" id="navbar">
+            <div class="nav-left">
+                <button class="mobile-menu-toggle" id="mobileMenuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="nav-brand">
+                    <i class="fas fa-building"></i>
+                    <div class="brand-text">
+                        <span class="brand-name">ODIC Finance</span>
+                        <span class="brand-tagline">Enterprise Platform</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="nav-center">
+                <div class="nav-search">
+                    <i class="fas fa-search"></i>
+                    <input type="text" placeholder="Search vendors, POs, invoices... (Ctrl+K)" id="globalSearch">
+                    <div class="search-results" id="searchResults"></div>
+                </div>
+            </div>
+            
+            <div class="nav-right">
+                <div class="nav-tools">
+                    <button class="nav-tool" id="themeToggle" title="Change Theme (8 Themes Available)">
+                        <i class="fas fa-palette"></i>
+                    </button>
+                    <button class="nav-tool" id="notificationBtn" title="Notifications & Alerts">
+                        <i class="fas fa-bell"></i>
+                        <span class="notification-badge" id="notificationBadge">3</span>
+                    </button>
+                    <button class="nav-tool" id="helpBtn" title="Help & Documentation">
+                        <i class="fas fa-question-circle"></i>
+                    </button>
+                    <button class="nav-tool" id="fullscreenBtn" title="Toggle Fullscreen">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
+                
+                <div class="user-menu">
+                    <div class="user-avatar">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name" id="currentUserName">Loading...</span>
+                        <span class="user-role" id="currentUserRole">Loading...</span>
+                    </div>
+                    <button class="user-dropdown-toggle" id="userDropdownToggle">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Enhanced Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h3><i class="fas fa-compass"></i> Navigation</h3>
+                <button class="sidebar-close" id="sidebarClose">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-screen="dashboard" title="Dashboard Overview">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                    <div class="nav-indicator"></div>
+                </a>
+                <a href="#" class="nav-item" data-screen="vendors" title="Vendor Management">
+                    <i class="fas fa-users"></i>
+                    <span>Vendor Management</span>
+                    <div class="nav-badge" id="vendorsBadge">2</div>
+                </a>
+                <a href="#" class="nav-item" data-screen="purchase-orders" title="Purchase Orders">
+                    <i class="fas fa-file-invoice"></i>
+                    <span>Purchase Orders</span>
+                    <div class="nav-badge" id="posBadge">4</div>
+                </a>
+                <a href="#" class="nav-item" data-screen="invoices" title="Invoice Management">
+                    <i class="fas fa-receipt"></i>
+                    <span>Invoices</span>
+                    <div class="nav-badge" id="invoicesBadge">7</div>
+                </a>
+                <a href="#" class="nav-item" data-screen="payments" title="Payment Processing">
+                    <i class="fas fa-credit-card"></i>
+                    <span>Payments</span>
+                    <div class="nav-badge" id="paymentsBadge">5</div>
+                </a>
+                <a href="#" class="nav-item" data-screen="approvals" title="Approval Workflows">
+                    <i class="fas fa-check-circle"></i>
+                    <span>Approvals</span>
+                    <div class="nav-badge urgent" id="approvalsBadge">12</div>
+                </a>
+                <a href="#" class="nav-item" data-screen="reports" title="Reports & Analytics">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Reports & Analytics</span>
+                </a>
+                <a href="#" class="nav-item" data-screen="imports-exports" title="Data Import/Export">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span>Import & Export</span>
+                </a>
+                <a href="#" class="nav-item" data-screen="audit-logs" title="Audit Trail">
+                    <i class="fas fa-history"></i>
+                    <span>Audit Logs</span>
+                </a>
+                <a href="#" class="nav-item" data-screen="settings" title="System Configuration">
+                    <i class="fas fa-cog"></i>
+                    <span>System Settings</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <div class="status-item">
+                        <span id="systemStatusDot" class="status-dot online"></span>
+                        <span>System Online</span>
+                    </div>
+                    <div class="status-item">
+                        <span id="apiStatusDot" class="status-dot"></span>
+                        <span id="apiStatusText">Backend API</span>
+                    </div>
+                </div>
+                
+                <button class="btn btn--outline btn--full-width" id="logoutBtn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Sign Out</span>
+                </button>
+                
+                <div class="system-info">
+                    <small>
+                        <strong>ODIC Finance System</strong><br>
+                        Version 2.1.1 | Build 2025.09.18<br>
+                        Enterprise Edition
+                    </small>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content" id="mainContent">
+            <!-- Enhanced Dashboard Screen -->
+            <div id="dashboard" class="content-screen active">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-tachometer-alt"></i> Enterprise Dashboard</h1>
+                        <p>Welcome back! Here's your complete finance operations overview with real-time insights.</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.refreshDashboard()">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh Data
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportDashboard()">
+                            <i class="fas fa-download"></i>
+                            Export Report
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.showQuickActions()">
+                            <i class="fas fa-plus"></i>
+                            Quick Actions
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Enhanced KPI Cards with Real-time Updates -->
+                <div class="kpi-section">
+                    <div class="kpi-grid">
+                        <div class="kpi-card clickable" data-action="pending-approvals">
+                            <div class="kpi-header">
+                                <div class="kpi-icon pending">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>+12%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value" id="pendingApprovalsCount">12</h3>
+                                <p class="kpi-label">Pending Approvals</p>
+                                <small class="kpi-subtitle">Requires immediate attention</small>
+                                <div class="kpi-progress">
+                                    <div class="progress-bar" style="width: 75%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card clickable" data-action="payments-due">
+                            <div class="kpi-header">
+                                <div class="kpi-icon urgent">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="kpi-trend down">
+                                    <i class="fas fa-arrow-down"></i>
+                                    <span>-5%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value" id="paymentsDueCount">5</h3>
+                                <p class="kpi-label">Payments Due This Week</p>
+                                <small class="kpi-subtitle">Total amount: ₹12.5L</small>
+                                <div class="kpi-progress">
+                                    <div class="progress-bar urgent" style="width: 45%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card clickable" data-action="vendor-onboarding">
+                            <div class="kpi-header">
+                                <div class="kpi-icon info">
+                                    <i class="fas fa-user-plus"></i>
+                                </div>
+                                <div class="kpi-trend neutral">
+                                    <i class="fas fa-minus"></i>
+                                    <span>0%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value" id="vendorOnboardingCount">8</h3>
+                                <p class="kpi-label">Vendor Onboarding</p>
+                                <small class="kpi-subtitle">Awaiting documentation</small>
+                                <div class="kpi-progress">
+                                    <div class="progress-bar" style="width: 60%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card clickable" data-action="advances-available">
+                            <div class="kpi-header">
+                                <div class="kpi-icon success">
+                                    <i class="fas fa-coins"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>+8%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value" id="advancesCount">₹2.5L</h3>
+                                <p class="kpi-label">Advances Available</p>
+                                <small class="kpi-subtitle">Ready for adjustment</small>
+                                <div class="kpi-progress">
+                                    <div class="progress-bar success" style="width: 85%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Additional KPI Cards -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <div class="kpi-icon success">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>+23%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value">₹45.2L</h3>
+                                <p class="kpi-label">Monthly Processing</p>
+                                <small class="kpi-subtitle">vs last month: ₹36.8L</small>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <div class="kpi-icon info">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>+4</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value">127</h3>
+                                <p class="kpi-label">Active Vendors</p>
+                                <small class="kpi-subtitle">4 new this month</small>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <div class="kpi-icon warning">
+                                    <i class="fas fa-percentage"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>+2%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value">98.5%</h3>
+                                <p class="kpi-label">Processing Accuracy</p>
+                                <small class="kpi-subtitle">Industry leading</small>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <div class="kpi-icon success">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="kpi-trend up">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>-1.2d</span>
+                                </div>
+                            </div>
+                            <div class="kpi-content">
+                                <h3 class="kpi-value">2.8</h3>
+                                <p class="kpi-label">Avg. Approval Time (days)</p>
+                                <small class="kpi-subtitle">Improved efficiency</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Dashboard Content -->
+                <div class="dashboard-content">
+                    <div class="dashboard-row">
+                        <div class="dashboard-col-2">
+                            <div class="card">
+                                <div class="card__header">
+                                    <h3><i class="fas fa-history"></i> Recent Activities</h3>
+                                    <div class="card-actions">
+                                        <button class="btn btn--outline btn--sm" onclick="odic.showAllActivities()">
+                                            View All
+                                        </button>
+                                        <button class="btn btn--outline btn--sm" onclick="odic.exportActivities()">
+                                            <i class="fas fa-download"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card__body">
+                                    <div class="activity-timeline" id="activityTimeline">
+                                        <!-- Activities will be populated by JavaScript -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-col-1">
+                            <div class="card">
+                                <div class="card__header">
+                                    <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+                                </div>
+                                <div class="card__body">
+                                    <div class="quick-actions-grid">
+                                        <button class="quick-action-btn" data-action="create-vendor">
+                                            <i class="fas fa-user-plus"></i>
+                                            <span>Add Vendor</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="create-po">
+                                            <i class="fas fa-file-plus"></i>
+                                            <span>Create PO</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="process-payment">
+                                            <i class="fas fa-credit-card"></i>
+                                            <span>Process Payment</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="create-invoice">
+                                            <i class="fas fa-receipt"></i>
+                                            <span>Create Invoice</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="bulk-approve">
+                                            <i class="fas fa-check-double"></i>
+                                            <span>Bulk Approve</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="export-reports">
+                                            <i class="fas fa-download"></i>
+                                            <span>Export Reports</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="tds-calculator">
+                                            <i class="fas fa-calculator"></i>
+                                            <span>TDS Calculator</span>
+                                        </button>
+                                        <button class="quick-action-btn" data-action="advance-payment">
+                                            <i class="fas fa-money-bill-wave"></i>
+                                            <span>Advance Payment</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-row">
+                        <div class="dashboard-col-1">
+                            <div class="card">
+                                <div class="card__header">
+                                    <h3><i class="fas fa-chart-pie"></i> Payment Distribution</h3>
+                                    <div class="card-actions">
+                                        <select class="form-control" style="width: auto;" onchange="odic.updatePaymentChart(this.value)">
+                                            <option value="current">Current Month</option>
+                                            <option value="quarter">This Quarter</option>
+                                            <option value="year">This Year</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="card__body">
+                                    <div class="chart-container" style="position: relative; height: 350px;">
+                                        <canvas id="paymentChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-col-1">
+                            <div class="card">
+                                <div class="card__header">
+                                    <h3><i class="fas fa-chart-line"></i> Monthly Trends</h3>
+                                    <div class="card-actions">
+                                        <button class="btn btn--outline btn--sm" onclick="odic.toggleTrendsView()">
+                                            Toggle View
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card__body">
+                                    <div class="chart-container" style="position: relative; height: 350px;">
+                                        <canvas id="trendsChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Dashboard Row -->
+                    <div class="dashboard-row">
+                        <div class="dashboard-col-full">
+                            <div class="card">
+                                <div class="card__header">
+                                    <h3><i class="fas fa-tasks"></i> Workflow Status Overview</h3>
+                                    <div class="card-actions">
+                                        <button class="btn btn--primary btn--sm" onclick="odic.refreshWorkflows()">
+                                            <i class="fas fa-sync-alt"></i> Refresh
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card__body">
+                                    <div class="workflow-grid">
+                                        <div class="workflow-item">
+                                            <div class="workflow-header">
+                                                <h4>Vendor Onboarding</h4>
+                                                <span class="status status--warning">8 Pending</span>
+                                            </div>
+                                            <div class="workflow-progress">
+                                                <div class="progress-bar" style="width: 65%"></div>
+                                                <span>65% Complete</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-item">
+                                            <div class="workflow-header">
+                                                <h4>Purchase Orders</h4>
+                                                <span class="status status--success">4 Approved</span>
+                                            </div>
+                                            <div class="workflow-progress">
+                                                <div class="progress-bar success" style="width: 90%"></div>
+                                                <span>90% Complete</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-item">
+                                            <div class="workflow-header">
+                                                <h4>Invoice Processing</h4>
+                                                <span class="status status--info">7 In Review</span>
+                                            </div>
+                                            <div class="workflow-progress">
+                                                <div class="progress-bar" style="width: 45%"></div>
+                                                <span>45% Complete</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-item">
+                                            <div class="workflow-header">
+                                                <h4>Payment Execution</h4>
+                                                <span class="status status--error">5 Overdue</span>
+                                            </div>
+                                            <div class="workflow-progress">
+                                                <div class="progress-bar urgent" style="width: 25%"></div>
+                                                <span>25% Complete</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Vendors Screen -->
+            <div id="vendors" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-users"></i> Vendor Management</h1>
+                        <p>Comprehensive vendor onboarding, approval workflows, and vendor database management</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" id="bulkActionsBtn">
+                            <i class="fas fa-tasks"></i>
+                            Bulk Actions
+                        </button>
+                        <button class="btn btn--secondary" id="exportVendorsBtn">
+                            <i class="fas fa-download"></i>
+                            Export Data
+                        </button>
+                        <button class="btn btn--success" id="importVendorsBtn">
+                            <i class="fas fa-upload"></i>
+                            Import CSV
+                        </button>
+                        <button class="btn btn--primary" id="addVendorBtn">
+                            <i class="fas fa-plus"></i>
+                            Add New Vendor
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Enhanced Filters Section -->
+                <div class="filters-section">
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label>Status Filter</label>
+                            <select class="form-control" id="vendorStatusFilter">
+                                <option value="">All Status</option>
+                                <option value="pending">Pending Approval</option>
+                                <option value="approved">Approved</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="suspended">Suspended</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>State/UT</label>
+                            <select class="form-control" id="vendorStateFilter">
+                                <option value="">All States</option>
+                                <option value="Delhi">Delhi</option>
+                                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                                <option value="Maharashtra">Maharashtra</option>
+                                <option value="Karnataka">Karnataka</option>
+                                <option value="Tamil Nadu">Tamil Nadu</option>
+                                <option value="Gujarat">Gujarat</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Business Type</label>
+                            <select class="form-control" id="vendorTypeFilter">
+                                <option value="">All Types</option>
+                                <option value="Service Provider">Service Provider</option>
+                                <option value="Distributor">Distributor</option>
+                                <option value="Trader">Trader</option>
+                                <option value="OEM">OEM</option>
+                                <option value="Manufacturer">Manufacturer</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Date Range</label>
+                            <select class="form-control" id="vendorDateFilter">
+                                <option value="">All Time</option>
+                                <option value="today">Today</option>
+                                <option value="week">This Week</option>
+                                <option value="month">This Month</option>
+                                <option value="quarter">This Quarter</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <button class="btn btn--outline" onclick="odic.clearVendorFilters()">
+                                <i class="fas fa-times"></i>
+                                Clear Filters
+                            </button>
+                            <button class="btn btn--primary" onclick="odic.applyVendorFilters()">
+                                <i class="fas fa-filter"></i>
+                                Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Vendors Table -->
+                <div class="table-section">
+                    <div class="table-container enhanced">
+                        <div class="table-header">
+                            <div class="table-info">
+                                <span id="vendorsCount">Loading...</span> vendors found
+                                <span class="table-selection" id="vendorsSelection"></span>
+                            </div>
+                            <div class="table-controls">
+                                <div class="table-search">
+                                    <i class="fas fa-search"></i>
+                                    <input type="text" placeholder="Search vendors..." id="vendorSearchInput">
+                                </div>
+                                <div class="pagination-size">
+                                    <label>Show</label>
+                                    <select id="vendorsPageSize">
+                                        <option value="10">10</option>
+                                        <option value="25" selected>25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                    <label>per page</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <table class="data-table sortable" id="vendorsTable">
+                            <thead>
+                                <tr>
+                                    <th class="checkbox-col">
+                                        <label class="checkbox-container">
+                                            <input type="checkbox" id="selectAllVendors">
+                                            <span class="checkmark"></span>
+                                        </label>
+                                    </th>
+                                    <th class="sortable" data-sort="companyName">
+                                        Company Name
+                                        <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th class="sortable" data-sort="gstin">GSTIN</th>
+                                    <th class="sortable" data-sort="pan">PAN</th>
+                                    <th class="sortable" data-sort="state">State</th>
+                                    <th class="sortable" data-sort="businessType">Type</th>
+                                    <th class="sortable" data-sort="status">Status</th>
+                                    <th class="sortable" data-sort="rating">Rating</th>
+                                    <th class="sortable" data-sort="createdDate">Created</th>
+                                    <th class="actions-col">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vendorsTableBody">
+                                <!-- Table content will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                        
+                        <div class="table-footer">
+                            <div class="table-summary">
+                                Showing <span id="vendorRangeStart">1</span>-<span id="vendorRangeEnd">25</span> 
+                                of <span id="vendorTotal">127</span> vendors
+                            </div>
+                            <div class="pagination" id="vendorsPagination">
+                                <!-- Pagination will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Purchase Orders Screen -->
+            <div id="purchase-orders" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-file-invoice"></i> Purchase Orders</h1>
+                        <p>Complete purchase order management with approval workflows, document generation, and tracking</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.showPOTemplates()">
+                            <i class="fas fa-file-alt"></i>
+                            Templates
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportPOs()">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <button class="btn btn--primary" id="createPOBtn">
+                            <i class="fas fa-plus"></i>
+                            Create New PO
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="po-summary-cards">
+                    <div class="summary-card">
+                        <div class="summary-icon draft">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <div class="summary-content">
+                            <h3>23</h3>
+                            <p>Draft POs</p>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon pending">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="summary-content">
+                            <h3>8</h3>
+                            <p>Pending Approval</p>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon approved">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="summary-content">
+                            <h3>45</h3>
+                            <p>Approved</p>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon total">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <div class="summary-content">
+                            <h3>₹2.5Cr</h3>
+                            <p>Total Value</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="feature-placeholder">
+                    <div class="feature-icon">
+                        <i class="fas fa-file-invoice"></i>
+                    </div>
+                    <h3>Advanced PO Management</h3>
+                    <p>Complete purchase order lifecycle management system including:</p>
+                    <div class="feature-list">
+                        <div class="feature-item"><i class="fas fa-check"></i> Multi-level approval workflows</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Automated PO numbering (ODI/YYYY-YY/NNNN)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> HSN/SAC code validation</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> GST calculations (CGST/SGST/IGST)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Print-optimized PDF generation</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Vendor selection with ratings</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Terms & conditions templates</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Delivery tracking</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Invoices Screen -->
+            <div id="invoices" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-receipt"></i> Invoice Management</h1>
+                        <p>Process invoices, validate against POs, and manage payment workflows with TDS calculations</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.validateInvoices()">
+                            <i class="fas fa-check-double"></i>
+                            Validate All
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportInvoices()">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.createInvoice()">
+                            <i class="fas fa-plus"></i>
+                            Create Invoice
+                        </button>
+                    </div>
+                </div>
+
+                <div class="feature-placeholder">
+                    <div class="feature-icon">
+                        <i class="fas fa-receipt"></i>
+                    </div>
+                    <h3>Comprehensive Invoice Processing</h3>
+                    <p>Advanced invoice management system with Indian compliance:</p>
+                    <div class="feature-list">
+                        <div class="feature-item"><i class="fas fa-check"></i> PO-Invoice matching & validation</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> HSN/SAC code compliance</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Automatic GST calculations</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> TDS computation (194C/194H/194J/194Q)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Three-way matching (PO-Invoice-Receipt)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Service vs Goods classification</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Reverse charge handling</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> E-invoice integration ready</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Payments Screen -->
+            <div id="payments" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-credit-card"></i> Payment Management</h1>
+                        <p>Handle advance payments, invoice payments, and credit adjustments with comprehensive TDS calculations</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.showTDSCalculator()">
+                            <i class="fas fa-calculator"></i>
+                            TDS Calculator
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportPayments()">
+                            <i class="fas fa-download"></i>
+                            Payment Reports
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.processPayment()">
+                            <i class="fas fa-plus"></i>
+                            Process Payment
+                        </button>
+                    </div>
+                </div>
+
+                <div class="payment-types-grid">
+                    <div class="payment-type-card">
+                        <div class="payment-type-header">
+                            <i class="fas fa-hand-holding-usd"></i>
+                            <h3>Advance Payments</h3>
+                        </div>
+                        <div class="payment-type-stats">
+                            <div class="stat">
+                                <span class="stat-value">12</span>
+                                <span class="stat-label">Pending</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">₹5.2L</span>
+                                <span class="stat-label">Amount</span>
+                            </div>
+                        </div>
+                        <button class="btn btn--primary btn--full-width" onclick="odic.showAdvancePayments()">
+                            View Details
+                        </button>
+                    </div>
+
+                    <div class="payment-type-card">
+                        <div class="payment-type-header">
+                            <i class="fas fa-file-invoice-dollar"></i>
+                            <h3>Invoice Payments</h3>
+                        </div>
+                        <div class="payment-type-stats">
+                            <div class="stat">
+                                <span class="stat-value">28</span>
+                                <span class="stat-label">Due</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">₹12.8L</span>
+                                <span class="stat-label">Amount</span>
+                            </div>
+                        </div>
+                        <button class="btn btn--primary btn--full-width" onclick="odic.showInvoicePayments()">
+                            View Details
+                        </button>
+                    </div>
+
+                    <div class="payment-type-card">
+                        <div class="payment-type-header">
+                            <i class="fas fa-adjust"></i>
+                            <h3>Credit Adjustments</h3>
+                        </div>
+                        <div class="payment-type-stats">
+                            <div class="stat">
+                                <span class="stat-value">7</span>
+                                <span class="stat-label">Pending</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">₹3.1L</span>
+                                <span class="stat-label">Amount</span>
+                            </div>
+                        </div>
+                        <button class="btn btn--primary btn--full-width" onclick="odic.showCreditAdjustments()">
+                            View Details
+                        </button>
+                    </div>
+                </div>
+
+                <div class="feature-placeholder">
+                    <div class="feature-icon">
+                        <i class="fas fa-credit-card"></i>
+                    </div>
+                    <h3>Advanced Payment Processing</h3>
+                    <p>Complete payment lifecycle with Indian tax compliance:</p>
+                    <div class="feature-list">
+                        <div class="feature-item"><i class="fas fa-check"></i> Multi-mode payments (NEFT/RTGS/UPI/Cheque)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> TDS sections (194C/194H/194J/194Q)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Advance vs invoice adjustment</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Bank reconciliation ready</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Payment proof uploads</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> UTR tracking</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Approval workflows</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Payment status notifications</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Approvals Screen -->
+            <div id="approvals" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-check-circle"></i> Approval Workflows</h1>
+                        <p>Centralized approval system for vendors, POs, payments, and all business processes</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.bulkApprove()">
+                            <i class="fas fa-check-double"></i>
+                            Bulk Approve
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportApprovals()">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <button class="btn btn--success" onclick="odic.approveSelected()">
+                            <i class="fas fa-check"></i>
+                            Approve Selected
+                        </button>
+                    </div>
+                </div>
+
+                <div class="approval-summary">
+                    <div class="approval-card urgent">
+                        <div class="approval-header">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <h3>Urgent Approvals</h3>
+                        </div>
+                        <div class="approval-count">5</div>
+                        <p>Require immediate attention</p>
+                    </div>
+
+                    <div class="approval-card pending">
+                        <div class="approval-header">
+                            <i class="fas fa-clock"></i>
+                            <h3>Pending Approvals</h3>
+                        </div>
+                        <div class="approval-count">12</div>
+                        <p>Awaiting your approval</p>
+                    </div>
+
+                    <div class="approval-card delegated">
+                        <div class="approval-header">
+                            <i class="fas fa-user-friends"></i>
+                            <h3>Delegated</h3>
+                        </div>
+                        <div class="approval-count">3</div>
+                        <p>Assigned to others</p>
+                    </div>
+
+                    <div class="approval-card completed">
+                        <div class="approval-header">
+                            <i class="fas fa-check-circle"></i>
+                            <h3>Completed Today</h3>
+                        </div>
+                        <div class="approval-count">8</div>
+                        <p>Approved by you</p>
+                    </div>
+                </div>
+
+                <div class="feature-placeholder">
+                    <div class="feature-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <h3>Multi-Level Approval System</h3>
+                    <p>Comprehensive approval workflows for all business processes:</p>
+                    <div class="feature-list">
+                        <div class="feature-item"><i class="fas fa-check"></i> Role-based approval matrix (L1-L5)</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Escalation management</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Parallel & sequential approvals</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Approval delegation</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Comments & rejection reasons</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Email notifications</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Audit trail</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> SLA monitoring</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Reports Screen -->
+            <div id="reports" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-chart-bar"></i> Reports & Analytics</h1>
+                        <p>Comprehensive reporting and analytics dashboard with export capabilities</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.scheduleReport()">
+                            <i class="fas fa-calendar"></i>
+                            Schedule Report
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.customReport()">
+                            <i class="fas fa-cog"></i>
+                            Custom Report
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.generateReport()">
+                            <i class="fas fa-file-pdf"></i>
+                            Generate Report
+                        </button>
+                    </div>
+                </div>
+
+                <div class="reports-grid">
+                    <div class="report-category">
+                        <h3><i class="fas fa-users"></i> Vendor Reports</h3>
+                        <div class="report-items">
+                            <button class="report-item" onclick="odic.generateVendorReport('summary')">
+                                <i class="fas fa-list"></i>
+                                Vendor Summary
+                            </button>
+                            <button class="report-item" onclick="odic.generateVendorReport('performance')">
+                                <i class="fas fa-chart-line"></i>
+                                Performance Analysis
+                            </button>
+                            <button class="report-item" onclick="odic.generateVendorReport('compliance')">
+                                <i class="fas fa-shield-check"></i>
+                                Compliance Status
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="report-category">
+                        <h3><i class="fas fa-credit-card"></i> Payment Reports</h3>
+                        <div class="report-items">
+                            <button class="report-item" onclick="odic.generatePaymentReport('summary')">
+                                <i class="fas fa-money-bill"></i>
+                                Payment Summary
+                            </button>
+                            <button class="report-item" onclick="odic.generatePaymentReport('tds')">
+                                <i class="fas fa-percentage"></i>
+                                TDS Report
+                            </button>
+                            <button class="report-item" onclick="odic.generatePaymentReport('outstanding')">
+                                <i class="fas fa-exclamation-circle"></i>
+                                Outstanding Payments
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="report-category">
+                        <h3><i class="fas fa-file-invoice"></i> PO & Invoice Reports</h3>
+                        <div class="report-items">
+                            <button class="report-item" onclick="odic.generatePOReport('summary')">
+                                <i class="fas fa-file-invoice"></i>
+                                PO Summary
+                            </button>
+                            <button class="report-item" onclick="odic.generateInvoiceReport('aging')">
+                                <i class="fas fa-clock"></i>
+                                Invoice Aging
+                            </button>
+                            <button class="report-item" onclick="odic.generateMatchingReport()">
+                                <i class="fas fa-search"></i>
+                                PO-Invoice Matching
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="report-category">
+                        <h3><i class="fas fa-chart-pie"></i> Analytics Reports</h3>
+                        <div class="report-items">
+                            <button class="report-item" onclick="odic.generateAnalyticsReport('trends')">
+                                <i class="fas fa-trending-up"></i>
+                                Spending Trends
+                            </button>
+                            <button class="report-item" onclick="odic.generateAnalyticsReport('efficiency')">
+                                <i class="fas fa-tachometer-alt"></i>
+                                Process Efficiency
+                            </button>
+                            <button class="report-item" onclick="odic.generateAnalyticsReport('forecast')">
+                                <i class="fas fa-crystal-ball"></i>
+                                Cash Flow Forecast
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Import/Export Screen -->
+            <div id="imports-exports" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-exchange-alt"></i> Import & Export</h1>
+                        <p>Bulk data import/export functionality with validation and error handling</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.downloadTemplates()">
+                            <i class="fas fa-download"></i>
+                            Download Templates
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.viewImportHistory()">
+                            <i class="fas fa-history"></i>
+                            Import History
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.bulkImport()">
+                            <i class="fas fa-upload"></i>
+                            Bulk Import
+                        </button>
+                    </div>
+                </div>
+
+                <div class="import-export-grid">
+                    <div class="ie-section">
+                        <h3><i class="fas fa-upload"></i> Import Data</h3>
+                        <div class="ie-options">
+                            <div class="ie-option">
+                                <i class="fas fa-users"></i>
+                                <h4>Vendor Import</h4>
+                                <p>Bulk import vendor master data</p>
+                                <button class="btn btn--outline" onclick="odic.importVendors()">Import</button>
+                            </div>
+                            <div class="ie-option">
+                                <i class="fas fa-file-invoice"></i>
+                                <h4>PO Import</h4>
+                                <p>Import purchase orders</p>
+                                <button class="btn btn--outline" onclick="odic.importPOs()">Import</button>
+                            </div>
+                            <div class="ie-option">
+                                <i class="fas fa-receipt"></i>
+                                <h4>Invoice Import</h4>
+                                <p>Bulk invoice processing</p>
+                                <button class="btn btn--outline" onclick="odic.importInvoices()">Import</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ie-section">
+                        <h3><i class="fas fa-download"></i> Export Data</h3>
+                        <div class="ie-options">
+                            <div class="ie-option">
+                                <i class="fas fa-file-csv"></i>
+                                <h4>CSV Export</h4>
+                                <p>Export data in CSV format</p>
+                                <button class="btn btn--outline" onclick="odic.exportCSV()">Export</button>
+                            </div>
+                            <div class="ie-option">
+                                <i class="fas fa-file-excel"></i>
+                                <h4>Excel Export</h4>
+                                <p>Export formatted Excel files</p>
+                                <button class="btn btn--outline" onclick="odic.exportExcel()">Export</button>
+                            </div>
+                            <div class="ie-option">
+                                <i class="fas fa-file-pdf"></i>
+                                <h4>PDF Reports</h4>
+                                <p>Generate PDF reports</p>
+                                <button class="btn btn--outline" onclick="odic.exportPDF()">Export</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Audit Logs Screen -->
+            <div id="audit-logs" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-history"></i> Audit Trail</h1>
+                        <p>Complete audit logging and system activity tracking for compliance</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.filterAuditLogs()">
+                            <i class="fas fa-filter"></i>
+                            Filter Logs
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportAuditLogs()">
+                            <i class="fas fa-download"></i>
+                            Export Audit Trail
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.refreshAuditLogs()">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="feature-placeholder">
+                    <div class="feature-icon">
+                        <i class="fas fa-history"></i>
+                    </div>
+                    <h3>Comprehensive Audit System</h3>
+                    <p>Complete activity logging and compliance tracking:</p>
+                    <div class="feature-list">
+                        <div class="feature-item"><i class="fas fa-check"></i> User activity tracking</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Data modification history</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Login/logout monitoring</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Approval trail tracking</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Security event logging</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Export restrictions</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Compliance reporting</div>
+                        <div class="feature-item"><i class="fas fa-check"></i> Retention policies</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Settings Screen -->
+            <div id="settings" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-cog"></i> System Settings</h1>
+                        <p>Configure system preferences, themes, and master data for optimal performance</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" onclick="odic.resetSettings()">
+                            <i class="fas fa-undo"></i>
+                            Reset to Defaults
+                        </button>
+                        <button class="btn btn--secondary" onclick="odic.exportSettings()">
+                            <i class="fas fa-download"></i>
+                            Export Config
+                        </button>
+                        <button class="btn btn--primary" onclick="odic.saveSettings()">
+                            <i class="fas fa-save"></i>
+                            Save Settings
+                        </button>
+                    </div>
+                </div>
+
+                <div class="settings-container">
+                    <div class="settings-nav">
+                        <button class="settings-tab active" data-tab="themes">
+                            <i class="fas fa-palette"></i>
+                            <span>Theme Settings</span>
+                        </button>
+                        <button class="settings-tab" data-tab="general">
+                            <i class="fas fa-cog"></i>
+                            <span>General</span>
+                        </button>
+                        <button class="settings-tab" data-tab="numbering">
+                            <i class="fas fa-sort-numeric-up"></i>
+                            <span>Numbering</span>
+                        </button>
+                        <button class="settings-tab" data-tab="templates">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Templates</span>
+                        </button>
+                        <button class="settings-tab" data-tab="security">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Security</span>
+                        </button>
+                        <button class="settings-tab" data-tab="notifications">
+                            <i class="fas fa-bell"></i>
+                            <span>Notifications</span>
+                        </button>
+                        <button class="settings-tab" data-tab="integrations">
+                            <i class="fas fa-plug"></i>
+                            <span>Integrations</span>
+                        </button>
+                        <button class="settings-tab" data-tab="backup">
+                            <i class="fas fa-database"></i>
+                            <span>Backup & Recovery</span>
+                        </button>
+                    </div>
+
+                    <div class="settings-content">
+                        <div id="themes-settings" class="settings-panel active">
+                            <h2><i class="fas fa-palette"></i> Theme Configuration</h2>
+                            <p>Choose from 8 professionally designed themes to match your corporate identity</p>
+                            
+                            <div class="theme-selection-grid" id="themeSelectionGrid">
+                                <!-- Theme options will be populated by JavaScript -->
+                            </div>
+
+                            <div class="theme-customization">
+                                <h3>Theme Customization</h3>
+                                <div class="form-group">
+                                    <label>Dark Mode Support</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="darkModeToggle">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="general-settings" class="settings-panel">
+                            <h2><i class="fas fa-cog"></i> General Settings</h2>
+                            <p>Configure general system preferences and defaults</p>
+                            
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>Company Name</label>
+                                    <input type="text" class="form-control" value="ODIC INTERNATIONAL">
+                                </div>
+                                <div class="form-group">
+                                    <label>Default Currency</label>
+                                    <select class="form-control">
+                                        <option value="INR" selected>Indian Rupee (₹)</option>
+                                        <option value="USD">US Dollar ($)</option>
+                                        <option value="EUR">Euro (€)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Date Format</label>
+                                    <select class="form-control">
+                                        <option value="DD-MM-YYYY" selected>DD-MM-YYYY</option>
+                                        <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+                                        <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Time Zone</label>
+                                    <select class="form-control">
+                                        <option value="Asia/Kolkata" selected>India Standard Time (IST)</option>
+                                        <option value="Asia/Dubai">Gulf Standard Time (GST)</option>
+                                        <option value="UTC">Coordinated Universal Time (UTC)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="numbering-settings" class="settings-panel">
+                            <h2><i class="fas fa-sort-numeric-up"></i> Document Numbering</h2>
+                            <p>Configure automatic numbering schemes for all documents</p>
+                            
+                            <div class="numbering-config">
+                                <div class="numbering-item">
+                                    <h4>Purchase Orders</h4>
+                                    <div class="form-group">
+                                        <label>Format</label>
+                                        <input type="text" class="form-control" value="ODI/{YYYY-YY}/{NNNN}">
+                                        <small>Preview: ODI/2025-26/0001</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Next Number</label>
+                                        <input type="number" class="form-control" value="32">
+                                    </div>
+                                </div>
+
+                                <div class="numbering-item">
+                                    <h4>Invoices</h4>
+                                    <div class="form-group">
+                                        <label>Format</label>
+                                        <input type="text" class="form-control" value="INV/{YYYY-YY}/{NNNN}">
+                                        <small>Preview: INV/2025-26/0001</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Next Number</label>
+                                        <input type="number" class="form-control" value="1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="templates-settings" class="settings-panel">
+                            <h2><i class="fas fa-file-alt"></i> Document Templates</h2>
+                            <p>Manage document templates and formatting options</p>
+                            
+                            <div class="template-grid">
+                                <div class="template-item">
+                                    <i class="fas fa-file-invoice"></i>
+                                    <h4>PO Template</h4>
+                                    <p>Purchase Order format</p>
+                                    <button class="btn btn--outline" onclick="odic.editTemplate('po')">Edit</button>
+                                </div>
+                                
+                                <div class="template-item">
+                                    <i class="fas fa-receipt"></i>
+                                    <h4>Invoice Template</h4>
+                                    <p>Invoice format</p>
+                                    <button class="btn btn--outline" onclick="odic.editTemplate('invoice')">Edit</button>
+                                </div>
+                                
+                                <div class="template-item">
+                                    <i class="fas fa-money-check-alt"></i>
+                                    <h4>Payment Voucher</h4>
+                                    <p>Payment documentation</p>
+                                    <button class="btn btn--outline" onclick="odic.editTemplate('payment')">Edit</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="security-settings" class="settings-panel">
+                            <h2><i class="fas fa-shield-alt"></i> Security Settings</h2>
+                            <p>Configure security policies and access controls</p>
+                            
+                            <div class="security-form">
+                                <div class="form-group">
+                                    <label>Session Timeout (minutes)</label>
+                                    <input type="number" class="form-control" value="480" min="30" max="1440">
+                                </div>
+                                <div class="form-group">
+                                    <label>Password Policy</label>
+                                    <div class="checkbox-group">
+                                        <label class="checkbox-container">
+                                            <input type="checkbox" checked>
+                                            <span class="checkmark"></span>
+                                            Minimum 8 characters
+                                        </label>
+                                        <label class="checkbox-container">
+                                            <input type="checkbox" checked>
+                                            <span class="checkmark"></span>
+                                            Require uppercase letters
+                                        </label>
+                                        <label class="checkbox-container">
+                                            <input type="checkbox" checked>
+                                            <span class="checkmark"></span>
+                                            Require numbers
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Two-Factor Authentication</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="twoFactorToggle">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="notifications-settings" class="settings-panel">
+                            <h2><i class="fas fa-bell"></i> Notification Settings</h2>
+                            <p>Configure notification preferences and channels</p>
+                            
+                            <div class="notification-settings">
+                                <div class="notification-group">
+                                    <h4>Email Notifications</h4>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" checked>
+                                        <span class="checkmark"></span>
+                                        Approval requests
+                                    </label>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" checked>
+                                        <span class="checkmark"></span>
+                                        Payment due reminders
+                                    </label>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox">
+                                        <span class="checkmark"></span>
+                                        Daily summaries
+                                    </label>
+                                </div>
+
+                                <div class="notification-group">
+                                    <h4>System Notifications</h4>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" checked>
+                                        <span class="checkmark"></span>
+                                        Browser notifications
+                                    </label>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" checked>
+                                        <span class="checkmark"></span>
+                                        Sound alerts
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="integrations-settings" class="settings-panel">
+                            <h2><i class="fas fa-plug"></i> System Integrations</h2>
+                            <p>Manage external system integrations and API connections</p>
+                            
+                            <div class="integration-grid">
+                                <div class="integration-item">
+                                    <i class="fas fa-university"></i>
+                                    <h4>Banking APIs</h4>
+                                    <p>Connect with bank systems</p>
+                                    <span class="status status--pending">Not Connected</span>
+                                    <button class="btn btn--primary" onclick="odic.configureBanking()">Configure</button>
+                                </div>
+                                
+                                <div class="integration-item">
+                                    <i class="fas fa-receipt"></i>
+                                    <h4>E-Invoice</h4>
+                                    <p>Government e-invoice portal</p>
+                                    <span class="status status--approved">Connected</span>
+                                    <button class="btn btn--outline" onclick="odic.configureEInvoice()">Settings</button>
+                                </div>
+                                
+                                <div class="integration-item">
+                                    <i class="fas fa-percentage"></i>
+                                    <h4>GST Portal</h4>
+                                    <p>GST return integration</p>
+                                    <span class="status status--pending">Not Connected</span>
+                                    <button class="btn btn--primary" onclick="odic.configureGST()">Configure</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="backup-settings" class="settings-panel">
+                            <h2><i class="fas fa-database"></i> Backup & Recovery</h2>
+                            <p>Configure data backup and recovery policies</p>
+                            
+                            <div class="backup-config">
+                                <div class="backup-schedule">
+                                    <h4>Automatic Backups</h4>
+                                    <div class="form-group">
+                                        <label>Backup Frequency</label>
+                                        <select class="form-control">
+                                            <option value="daily" selected>Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="monthly">Monthly</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Retention Period (days)</label>
+                                        <input type="number" class="form-control" value="30" min="7" max="365">
+                                    </div>
+                                </div>
+
+                                <div class="backup-actions">
+                                    <button class="btn btn--primary" onclick="odic.createBackup()">
+                                        <i class="fas fa-download"></i>
+                                        Create Backup Now
+                                    </button>
+                                    <button class="btn btn--secondary" onclick="odic.restoreBackup()">
+                                        <i class="fas fa-upload"></i>
+                                        Restore Backup
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Enhanced Modal Container -->
+    <div id="modalOverlay" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="modalTitle">Modal Title</h3>
+                <button class="modal-close" onclick="odic.closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Modal content will be populated by JavaScript -->
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <!-- Modal footer will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Enhanced Theme Selector Modal -->
+    <div id="themeModal" class="theme-modal">
+        <div class="theme-modal-content">
+            <div class="theme-modal-header">
+                <h3><i class="fas fa-palette"></i> Select Enterprise Theme</h3>
+                <p>8 Professional Themes Available</p>
+                <button class="theme-modal-close" onclick="odic.closeThemeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="theme-modal-body" id="themeModalBody">
+                <!-- Theme options will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Enhanced Notification Panel -->
+    <div id="notificationPanel" class="notification-panel">
+        <div class="notification-header">
+            <h3><i class="fas fa-bell"></i> Notifications</h3>
+            <div class="notification-actions">
+                <button class="btn btn--outline btn--sm" onclick="odic.markAllRead()">
+                    Mark All Read
+                </button>
+                <button class="notification-close" onclick="odic.closeNotificationPanel()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div class="notification-body" id="notificationBody">
+            <!-- Notifications will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Enhanced Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Enhanced User Dropdown -->
+    <div id="userDropdown" class="user-dropdown">
+        <div class="user-dropdown-header">
+            <div class="user-avatar-large">
+                <i class="fas fa-user-circle"></i>
+            </div>
+            <div class="user-details">
+                <span class="user-name-large" id="userNameLarge">Loading...</span>
+                <span class="user-email" id="userEmailLarge">Loading...</span>
+                <span class="user-role-large" id="userRoleLarge">Loading...</span>
+            </div>
+        </div>
+        <div class="user-dropdown-menu">
+            <a href="#" onclick="odic.showProfile()">
+                <i class="fas fa-user"></i>
+                Profile Settings
+            </a>
+            <a href="#" onclick="odic.showPreferences()">
+                <i class="fas fa-cog"></i>
+                My Preferences
+            </a>
+            <a href="#" onclick="odic.showActivity()">
+                <i class="fas fa-history"></i>
+                My Activity
+            </a>
+            <a href="#" onclick="odic.showHelp()">
+                <i class="fas fa-question-circle"></i>
+                Help & Support
+            </a>
+            <div class="dropdown-divider"></div>
+            <a href="#" onclick="odic.handleLogout()" class="logout-link">
+                <i class="fas fa-sign-out-alt"></i>
+                Sign Out Securely
+            </a>
+        </div>
+    </div>
+
+    <!-- Enhanced Offline Indicator -->
+    <div id="offlineIndicator" class="offline-indicator">
+        <i class="fas fa-wifi"></i>
+        <span>You're currently offline - Limited functionality</span>
+        <button onclick="odic.retryConnection()">Retry</button>
+    </div>
+
+    <!-- Print View -->
+    <div id="printView" class="print-view">
+        <div id="printContent">
+            <!-- Print content will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <!-- PWA Install Prompt -->
+    <div id="pwaInstallBanner" class="pwa-banner hidden">
+        <div class="pwa-content">
+            <i class="fas fa-mobile-alt"></i>
+            <div class="pwa-text">
+                <h4>Install ODIC Finance App</h4>
+                <p>Get the full experience with our mobile app</p>
+            </div>
+            <div class="pwa-actions">
+                <button class="btn btn--outline btn--sm" onclick="odic.dismissPWAPrompt()">Not Now</button>
+                <button class="btn btn--primary btn--sm" onclick="odic.installPWA()">Install</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Development Console (for debugging in production) -->
+    <div id="devConsole" class="dev-console hidden">
+        <div class="dev-header">
+            <h4>Development Console</h4>
+            <button onclick="odic.toggleDevConsole()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="dev-body">
+            <div class="dev-info">
+                <div><strong>Version:</strong> 2.1.0</div>
+                <div><strong>Build:</strong> 2025.09.17</div>
+                <div><strong>Environment:</strong> Production</div>
+                <div><strong>User Agent:</strong> <span id="userAgent"></span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/app.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(registration => console.log('SW registered:', registration))
+                .catch(error => console.log('SW registration failed:', error));
+        }
+    </script>
+</body>
+</html>
