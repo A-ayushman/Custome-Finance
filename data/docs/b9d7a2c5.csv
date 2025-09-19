@@ -1,0 +1,6 @@
+field,label,required,type
+pr_number,PR Number,true,text
+requester,Requested By,true,text
+cost_center,Cost Center,false,text
+amount,Estimated Amount,true,number
+justification,Justification,false,textarea

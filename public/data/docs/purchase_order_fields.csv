@@ -1,0 +1,15 @@
+Category,Field_Name,Data_Type,Required,Max_Length
+Document Header,po_number,Alphanumeric,True,16
+Document Header,po_date,Date,True,N/A
+Buyer Information,buyer_legal_name,Text,True,200
+Buyer Information,buyer_gstin,Alphanumeric,True,15
+Supplier Information,supplier_legal_name,Text,True,200
+Supplier Information,supplier_gstin,Alphanumeric,True,15
+Item Details,item_description,Text,True,500
+Item Details,hsn_sac_code,Numeric,True,8
+Item Details,quantity,Decimal,True,N/A
+Item Details,unit_price,Decimal,True,N/A
+Tax Information,cgst_rate,Decimal,True,N/A
+Tax Information,sgst_rate,Decimal,True,N/A
+Tax Information,igst_rate,Decimal,True,N/A
+Terms and Conditions,payment_terms,Dropdown,True,N/A

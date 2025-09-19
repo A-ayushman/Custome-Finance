@@ -1,0 +1,9 @@
+Transaction_Type,Document,Standard_Terms,Reminder_Days,Penalty_Rate
+B2B,Purchase Order,Net 30,"[25, 28, 30, 37]",Base+2%
+B2B,Tax Invoice,Net 45,"[40, 43, 45, 52]",Base+2%
+B2B,GST Return,Monthly 20th,"[15, 18, 20, 25]",18% p.a.
+B2B,TDS Payment,Monthly 7th,"[2, 5, 7, 10]",1.5% p.m.
+B2C,EMI Payment,Monthly,"[25, 28, 30, 35]",24% p.a.
+B2C,Credit Card,Monthly 15th,"[10, 13, 15, 20]",36% p.a.
+B2G,Government Contract,Net 30,"[25, 28, 30, 37]",Bank Rate+2%
+B2G,Tax Payment,Quarterly,"[85, 88, 90, 95]",12% p.a.

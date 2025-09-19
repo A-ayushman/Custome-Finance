@@ -162,6 +162,7 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="nav-brand">
+                    <span id="versionBadge" class="status status--info" style="margin-right:12px; padding:4px 8px; font-size:11px;">v</span>
                     <i class="fas fa-building"></i>
                     <div class="brand-text">
                         <span class="brand-name">ODIC Finance</span>
@@ -189,6 +190,13 @@
                     </button>
                     <button class="nav-tool" id="helpBtn" title="Help & Documentation">
                         <i class="fas fa-question-circle"></i>
+                    </button>
+                    <button class="nav-tool" id="docsViewerBtn" title="Compliance & Documentation">
+                        <i class="fas fa-book"></i>
+                    </button>
+                    <button class="nav-tool" id="taxRegimeBtn" title="Toggle Tax Regime (Old/New)">
+                        <i class="fas fa-percent"></i>
+                        <span>New</span>
                     </button>
                     <button class="nav-tool" id="fullscreenBtn" title="Toggle Fullscreen">
                         <i class="fas fa-expand"></i>
@@ -261,6 +269,10 @@
                 <a href="#" class="nav-item" data-screen="audit-logs" title="Audit Trail">
                     <i class="fas fa-history"></i>
                     <span>Audit Logs</span>
+                </a>
+                <a href="#" class="nav-item" data-screen="financial-instruments" title="Financial Instruments">
+                    <i class="fas fa-university"></i>
+                    <span>Financial Instruments</span>
                 </a>
                 <a href="#" class="nav-item" data-screen="settings" title="System Configuration">
                     <i class="fas fa-cog"></i>
@@ -660,11 +672,11 @@
                             <i class="fas fa-tasks"></i>
                             Bulk Actions
                         </button>
-                        <button class="btn btn--secondary" id="exportVendorsBtn">
+                        <button class="btn btn--secondary" id="exportVendorsBtn" onclick="odic.exportVendors()">
                             <i class="fas fa-download"></i>
                             Export Data
                         </button>
-                        <button class="btn btn--success" id="importVendorsBtn">
+                        <button class="btn btn--success" id="importVendorsBtn" onclick="odic.importVendors()">
                             <i class="fas fa-upload"></i>
                             Import CSV
                         </button>
@@ -897,6 +909,10 @@
                         <button class="btn btn--secondary" onclick="odic.exportInvoices()">
                             <i class="fas fa-download"></i>
                             Export
+                        </button>
+                        <button class="btn btn--success" onclick="odic.openDeliveryChallanForm()">
+                            <i class="fas fa-truck"></i>
+                            + Create DC
                         </button>
                         <button class="btn btn--primary" onclick="odic.createInvoice()">
                             <i class="fas fa-plus"></i>
@@ -1645,6 +1661,38 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Financial Instruments Screen -->
+            <div id="financial-instruments" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-university"></i> Financial Instruments</h1>
+                        <p>Unified module for B2B, B2G instruments and compliance tracking per RBI 2025 guidelines</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" id="importInstrumentsBtn"><i class="fas fa-upload"></i> Import CSV</button>
+                        <button class="btn btn--secondary" id="exportInstrumentsBtn"><i class="fas fa-download"></i> Export</button>
+                        <button class="btn btn--primary" id="createInstrumentBtn"><i class="fas fa-plus"></i> New Instrument</button>
+                    </div>
+                </div>
+                <div class="feature-placeholder">
+                    <div class="feature-icon"><i class="fas fa-diagram-project"></i></div>
+                    <h3>Coverage</h3>
+                    <p>Bank Guarantees, Letters of Credit, RTGS/NEFT/UPI B2B, e-Kuber, GeM payments, Digital Signature workflows, PFMS/Audit Trail.</p>
+                </div>
+                <div class="table-section">
+                    <div class="table-container enhanced">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Instrument No</th><th>Type</th><th>Category</th><th>Counterparty</th><th>Amount</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fiTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -1779,8 +1827,8 @@
         </div>
         <div class="dev-body">
             <div class="dev-info">
-                <div><strong>Version:</strong> 2.1.0</div>
-                <div><strong>Build:</strong> 2025.09.17</div>
+                <div><strong>Version:</strong> 2.1.1</div>
+                <div><strong>Build:</strong> 2025.09.18</div>
                 <div><strong>Environment:</strong> Production</div>
                 <div><strong>User Agent:</strong> <span id="userAgent"></span></div>
             </div>
@@ -1793,11 +1841,26 @@
 
     <!-- Service Worker Registration -->
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(registration => console.log('SW registered:', registration))
-                .catch(error => console.log('SW registration failed:', error));
-        }
+        (function(){
+            const params = new URLSearchParams(location.search);
+            const disable = params.get('nosw') === '1' || localStorage.getItem('odic_disable_sw') === '1';
+            if (disable) {
+                console.log('SW registration disabled via nosw=1 or odic_disable_sw');
+            } else if ('serviceWorker' in navigator) {
+                const _b = document.querySelector('meta[name="build"]');
+                const _v = document.querySelector('meta[name="version"]');
+                const _ver = (_b && _b.content) || (_v && _v.content) || String(Date.now());
+                const _primary = `/sw.v${encodeURIComponent(_ver)}.js`;
+                const _fallback = `/sw.js?v=${encodeURIComponent(_ver)}`;
+                // Try versioned filename first (bypasses any edge cache entirely), then fallback to query-param version
+                navigator.serviceWorker.register(_primary)
+                    .then(reg => console.log('SW registered (versioned path):', reg))
+                    .catch(() => navigator.serviceWorker.register(_fallback)
+                        .then(reg => console.log('SW registered (fallback):', reg))
+                        .catch(error => console.log('SW registration failed:', error))
+                    );
+            }
+        })();
     </script>
 </body>
 </html>
