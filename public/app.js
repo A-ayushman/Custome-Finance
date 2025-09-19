@@ -22,6 +22,11 @@ class ODICFinanceSystem {
         this.data = this.initializeData();
         // Feature flags (persisted in localStorage)
         this.features = this.loadFeatureFlags();
+        // Tax regime and documentation config
+        this.taxRegime = this.getSavedData('odicTaxRegime') || 'NEW_TAX_REGIME_2025';
+        this.taxConfig = null;
+        this.docSchemas = {};
+        this.docsManifest = [];
         
         // 8 Premium Enterprise Themes
         this.themes = [
@@ -206,6 +211,7 @@ class ODICFinanceSystem {
             approvals: this.generateApprovals(),
             activities: this.generateActivities(),
             notifications: this.generateNotifications(),
+            financialInstruments: this.generateFinancialInstruments(),
             auditLogs: []
         };
 
@@ -300,6 +306,12 @@ class ODICFinanceSystem {
     generatePurchaseOrders() { return []; }
     generateInvoices() { return []; }
     generatePayments() { return []; }
+    generateFinancialInstruments() {
+        // Seed with one sample record for demo/list rendering
+        return [
+            { id: 1, number: 'BG/2025-26/0001', type: 'Bank Guarantee', category: 'B2B', counterparty: 'ABC Infra Pvt Ltd', amount: 500000, issueDate: '2025-09-10', dueDate: '2026-09-10', bank: 'HDFC Bank', utr: '', status: 'active', compliance: ['KYB','AML'] }
+        ];
+    }
     generateApprovals() {
         return [
             {
@@ -758,6 +770,15 @@ class ODICFinanceSystem {
         this.setupDashboardKPIs && this.setupDashboardKPIs();
         this.setupPOInvoiceHandlers && this.setupPOInvoiceHandlers();
         this.checkBackendHealth && this.checkBackendHealth();
+        // Load taxation and documentation schemas
+        this.loadTaxAndDocs && this.loadTaxAndDocs();
+        // Financial Instruments UI
+        this.setupFinancialInstrumentsUI && this.setupFinancialInstrumentsUI();
+        this.loadFinancialInstrumentsData && this.loadFinancialInstrumentsData();
+        this.scheduleDueDateAlerts && this.scheduleDueDateAlerts();
+        // Compliance documentation loader and UI
+        this.loadDocsManifest && this.loadDocsManifest();
+        this.setupComplianceDocsUI && this.setupComplianceDocsUI();
         
         // Initialize charts after DOM is ready
         setTimeout(() => {
@@ -824,6 +845,104 @@ class ODICFinanceSystem {
             this.saveFeatureFlags({ requireGRN: grnCb.checked });
             this.showToast(`GRN requirement ${grnCb.checked ? 'enabled' : 'disabled'}`,'info');
         });
+
+
+    }
+
+    // === Taxation and Documentation System Integration ===
+    getFriendlyRegimeName() {
+        return this.taxRegime && String(this.taxRegime).startsWith('NEW') ? 'New (FY 2025-26)' : 'Old';
+    }
+
+    async loadTaxAndDocs() {
+        // Load tax configuration JSON (path can be overridden via <meta name="tax-config-path">)
+        try {
+            const metaPath = document.querySelector('meta[name="tax-config-path"]');
+            const path = (metaPath && metaPath.content) || '/data/indian_taxation_document_structure.json.txt';
+            const res = await fetch(path, { cache: 'no-cache' });
+            if (res.ok) {
+                this.taxConfig = await res.json();
+                console.log('Tax configuration loaded:', Object.keys(this.taxConfig||{}));
+            } else {
+                console.warn('Tax config not available:', res.status);
+            }
+        } catch (e) {
+            console.warn('Failed to load tax config', e);
+        }
+
+        // Load documentation schemas (CSV)
+        const loadCsv = async (p) => {
+            try {
+                const r = await fetch(p, { cache: 'no-cache' });
+                if (r.ok) { const t = await r.text(); return this.parseCSV(t); }
+            } catch (e) { console.warn('CSV load failed for', p, e); }
+            return null;
+        };
+        this.docSchemas = {
+            purchase_requisition: await loadCsv('/data/b9d7a2c5.csv'),
+            purchase_order: await loadCsv('/data/85619e00.csv'),
+            category_mapping: await loadCsv('/data/1f61c7f4.csv')
+        };
+        console.log('Doc schemas loaded:', Object.keys(this.docSchemas));
+
+        this.injectTaxRegimeUI && this.injectTaxRegimeUI();
+    }
+
+    injectTaxRegimeUI() {
+        // Navbar toggle button
+        const btn = document.getElementById('taxRegimeBtn');
+        if (btn && !btn._odicBound) {
+            btn._odicBound = true;
+            this.updateTaxRegimeButton();
+            btn.addEventListener('click', () => {
+                this.taxRegime = (this.taxRegime && String(this.taxRegime).startsWith('NEW')) ? 'OLD_TAX_REGIME' : 'NEW_TAX_REGIME_2025';
+                this.saveData('odicTaxRegime', this.taxRegime);
+                this.updateTaxRegimeButton();
+                this.onTaxRegimeChanged();
+                this.showToast(`Switched to ${this.getFriendlyRegimeName()} tax regime`, 'success');
+            });
+        }
+        // Settings > General select
+        const panel = document.getElementById('general-settings');
+        if (panel && !panel._odicTaxInjected) {
+            panel._odicTaxInjected = true;
+            const form = panel.querySelector('.settings-form') || panel;
+            const wrap = document.createElement('div');
+            wrap.className = 'form-group';
+            wrap.innerHTML = `
+                <label>Tax Regime</label>
+                <select id="taxRegimeSelect" class="form-control">
+                    <option value="NEW_TAX_REGIME_2025" ${this.taxRegime && String(this.taxRegime).startsWith('NEW') ? 'selected' : ''}>New (Default FY 2025-26)</option>
+                    <option value="OLD_TAX_REGIME" ${this.taxRegime && String(this.taxRegime).startsWith('OLD') ? 'selected' : ''}>Old</option>
+                </select>
+                <small>Stored per-device. Impacts labels and calculators. Does not change GST.</small>
+            `;
+            form.appendChild(wrap);
+            const sel = wrap.querySelector('#taxRegimeSelect');
+            sel.addEventListener('change', () => {
+                this.taxRegime = sel.value;
+                this.saveData('odicTaxRegime', this.taxRegime);
+                this.updateTaxRegimeButton();
+                this.onTaxRegimeChanged();
+                this.showToast(`Saved ${this.getFriendlyRegimeName()} tax regime`, 'success');
+            });
+        }
+    }
+
+    updateTaxRegimeButton() {
+        const btn = document.getElementById('taxRegimeBtn');
+        if (!btn) return;
+        const isNew = this.taxRegime && String(this.taxRegime).startsWith('NEW');
+        btn.innerHTML = `<i class="fas fa-percent"></i> <span>${isNew ? 'New' : 'Old'}</span>`;
+        btn.title = `Current Tax Regime: ${isNew ? 'New (FY 2025-26)' : 'Old'}`;
+    }
+
+    onTaxRegimeChanged() {
+        // Update any hints currently on screen
+        document.querySelectorAll('.tax-regime-hint').forEach(el => {
+            el.textContent = `Tax Regime: ${this.getFriendlyRegimeName()}`;
+        });
+
     }
 
     /**
@@ -1732,6 +1851,7 @@ class ODICFinanceSystem {
 
     showTDSCalculator() {
         const body = `
+            <div class="form-group"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
             <div class="form-grid">
                 <div class="form-group">
                     <label class="form-label">Amount (INR)</label>
@@ -2142,6 +2262,7 @@ class ODICFinanceSystem {
                 <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${p.taxes.cgst}"></div>
                 <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${p.taxes.sgst}"></div>
                 <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${p.taxes.igst}"></div>
+                <div class="form-group" style="grid-column:1/-1"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
                 <div class="form-group" style="grid-column:1/-1"><label class="form-label">Terms</label><textarea name="terms" class="form-control">${(p.terms||[]).join('\n')}</textarea></div>
             </form>
             <div id="poTotals" style="margin-top:8px; font-family:monospace"></div>
@@ -2321,6 +2442,7 @@ class ODICFinanceSystem {
                 <div class="form-group"><label class="form-label">CGST %</label><input type="number" name="cgst" class="form-control" value="${v.taxes.cgst}"></div>
                 <div class="form-group"><label class="form-label">SGST %</label><input type="number" name="sgst" class="form-control" value="${v.taxes.sgst}"></div>
                 <div class="form-group"><label class="form-label">IGST %</label><input type="number" name="igst" class="form-control" value="${v.taxes.igst}"></div>
+                <div class="form-group" style="grid-column:1/-1"><small class="tax-regime-hint">Tax Regime: ${this.getFriendlyRegimeName()}</small></div>
                 <div class="form-group"><label class="form-label">PO Reference</label><input type="text" name="po_ref" class="form-control"></div>
                 ${this.isThreeWayMatchEnabled() && this.features?.requireGRN ? `<div class="form-group"><label class="form-label">GRN Reference</label><input type="text" name="grn_ref" class="form-control" placeholder="Enter Goods Receipt Note number"></div>` : ''}
             </form>
@@ -2927,6 +3049,400 @@ class ODICFinanceSystem {
             <div class=\"signature-block\"><div>For ${this.data.company.name}<div style=\"margin-top:60px\">Authorised Signatory</div></div></div>
         </div>`;
     }
+
+    // ===== Financial Instruments =====
+    async loadFinancialInstrumentsData() {
+        try {
+            const base = this.getApiBase();
+            if (base) {
+                const { items, total } = await this.fetchInstrumentsFromAPI();
+                this.state.apiInstruments = { items, total };
+            } else {
+                this.state.apiInstruments = null;
+            }
+        } catch (e) {
+            console.warn('Financial instruments API unavailable, using local data', e);
+            this.state.apiInstruments = null;
+        }
+        this.renderFinancialInstrumentsTable && this.renderFinancialInstrumentsTable();
+    }
+
+    async fetchInstrumentsFromAPI() {
+        const base = this.getApiBase();
+        if (!base) throw new Error('API base not configured');
+        const res = await fetch(`${base}/api/financial-instruments`, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json || json.success !== true) throw new Error(json?.error?.message || 'API error');
+        const data = json.data || {};
+        return { items: Array.isArray(data.items) ? data.items : [], total: Number(data.total || 0) };
+    }
+
+    renderFinancialInstrumentsTable() {
+        const tbody = document.getElementById('fiTableBody');
+        if (!tbody) return;
+        const list = (this.state.apiInstruments?.items?.length ? this.state.apiInstruments.items : (this.data.financialInstruments || []));
+        const rows = list.map((fi, idx) => {
+            const days = this.daysUntil(fi.dueDate);
+            const dueClass = days < 0 ? 'status--error' : (days <= 7 ? 'status--warning' : 'status--success');
+            return `
+            <tr>
+                <td>${fi.number || '—'}</td>
+                <td>${fi.type}</td>
+                <td>${fi.category}</td>
+                <td>${fi.counterparty || ''}</td>
+                <td>${this.formatCurrency(fi.amount||0)}</td>
+                <td>${fi.issueDate || ''}</td>
+                <td>${fi.dueDate || ''} <span class="status ${dueClass}" style="margin-left:6px">${days<0?`${Math.abs(days)}d overdue`:`${days}d`}</span></td>
+                <td>${fi.status || 'active'}</td>
+                <td class="actions-col">
+                    <button class="btn btn--outline btn--sm" data-action="preview" data-index="${idx}" title="Preview/Print"><i class="fas fa-print"></i></button>
+                    <button class="btn btn--secondary btn--sm" data-action="edit" data-index="${idx}" title="Edit"><i class="fas fa-edit"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+        tbody.innerHTML = rows || '<tr><td colspan="9">No instruments yet.</td></tr>';
+        tbody.querySelectorAll('button[data-action]')?.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.getAttribute('data-action');
+                const index = Number(btn.getAttribute('data-index'));
+                const fi = list[index];
+                if (!fi) return;
+                if (action === 'preview') {
+                    const html = this.renderInstrumentToPrint(fi);
+                    this.showPrintView(html);
+                } else if (action === 'edit') {
+                    this.openInstrumentForm('edit', fi);
+                }
+            });
+        });
+    }
+
+    daysUntil(dateStr) {
+        const today = new Date();
+        const d = new Date(dateStr);
+        const diff = Math.floor((d - today) / (1000*60*60*24));
+        return diff;
+    }
+
+    setupFinancialInstrumentsUI() {
+        const createBtn = document.getElementById('createInstrumentBtn');
+        if (createBtn && !createBtn._odicBound) {
+            createBtn._odicBound = true;
+            createBtn.addEventListener('click', () => this.openInstrumentForm('create'));
+        }
+        const exportBtn = document.getElementById('exportInstrumentsBtn');
+        if (exportBtn && !exportBtn._odicBound) {
+            exportBtn._odicBound = true;
+            exportBtn.addEventListener('click', () => this.exportFinancialInstruments());
+        }
+        const importBtn = document.getElementById('importInstrumentsBtn');
+        if (importBtn && !importBtn._odicBound) {
+            importBtn._odicBound = true;
+            importBtn.addEventListener('click', () => this.importFinancialInstruments());
+        }
+    }
+
+    openInstrumentForm(mode='create', inst=null) {
+        const isEdit = mode==='edit' && !!inst;
+        const seq = ((this.data.financialInstruments||[]).length||0) + 1;
+        const number = isEdit ? (inst.number||'') : this.formatDocumentNumber('FI/{YYYY-YY}/{NNNN}', seq);
+        const v = inst || { number, type:'Bank Guarantee', category:'B2B', counterparty:'', amount:0, issueDate: new Date().toISOString().split('T')[0], dueDate: new Date(Date.now()+30*86400000).toISOString().split('T')[0], bank:'', utr:'', status:'active', compliance:[] };
+        const body = `
+            <form id="fiForm" class="form-grid">
+                <div class="form-group"><label class="form-label">Instrument No</label><input name="number" class="form-control" value="${v.number}" ${isEdit?'readonly':''}></div>
+                <div class="form-group"><label class="form-label">Type</label>
+                    <select name="type" class="form-control">
+                        ${['Bank Guarantee','Letter of Credit','RTGS','NEFT','UPI B2B','e-Kuber','GeM Payment','Digital Signature'].map(t=>`<option ${v.type===t?'selected':''} value="${t}">${t}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Category</label>
+                    <select name="category" class="form-control">
+                        ${['B2B','B2C','B2G'].map(c=>`<option ${v.category===c?'selected':''} value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Counterparty</label><input name="counterparty" class="form-control" value="${v.counterparty}"></div>
+                <div class="form-group"><label class="form-label">Amount (₹)</label><input type="number" min="0" step="0.01" name="amount" class="form-control" value="${v.amount}"></div>
+                <div class="form-group"><label class="form-label">Issue Date</label><input type="date" name="issueDate" class="form-control" value="${v.issueDate}"></div>
+                <div class="form-group"><label class="form-label">Due Date</label><input type="date" name="dueDate" class="form-control" value="${v.dueDate}"></div>
+                <div class="form-group"><label class="form-label">Bank</label><input name="bank" class="form-control" value="${v.bank}"></div>
+                <div class="form-group"><label class="form-label">UTR/Reference</label><input name="utr" class="form-control" value="${v.utr||''}"></div>
+                <div class="form-group" style="grid-column:1/-1"><label class="form-label">Compliance</label>
+                    <div class="checkbox-group">
+                        ${['GST','TDS','KYB','AML','FEMA','DPDP','PFMS','Audit Trail'].map(tag=>`<label class="checkbox-container"><input type="checkbox" name="compliance" value="${tag}" ${(v.compliance||[]).includes(tag)?'checked':''}><span class="checkmark"></span>${tag}</label>`).join('')}
+                    </div>
+                </div>
+            </form>
+            <div style="font-family:monospace; grid-column:1/-1"><small>RBI Guidelines 2025 compliant template will be used for print preview.</small></div>
+        `;
+        const footer = `
+            <button class="btn btn--outline" onclick="odic.closeModal()">Cancel</button>
+            <button id="fiPreviewBtn" class="btn btn--secondary">Preview</button>
+            <button id="fiSaveBtn" class="btn btn--primary">${isEdit?'Update':'Create'} Instrument</button>
+        `;
+        this.openModal(isEdit?'Edit Financial Instrument':'Create Financial Instrument', body, footer);
+        const saveBtn = document.getElementById('fiSaveBtn');
+        const prevBtn = document.getElementById('fiPreviewBtn');
+        const collect = () => {
+            const f = document.getElementById('fiForm'); const fd = new FormData(f);
+            const tags = Array.from(f.querySelectorAll('input[name="compliance"]:checked')).map(i=>i.value);
+            return { number: fd.get('number'), type: fd.get('type'), category: fd.get('category'), counterparty: (fd.get('counterparty')||'').trim(), amount: Number(fd.get('amount')||0), issueDate: fd.get('issueDate'), dueDate: fd.get('dueDate'), bank: (fd.get('bank')||'').trim(), utr: (fd.get('utr')||'').trim(), status: 'active', compliance: tags };
+        };
+        prevBtn.addEventListener('click', () => {
+            const payload = collect();
+            const vld = this.validateInstrumentPayload(payload);
+            if (!vld.valid) { this.showToast(vld.message, 'error'); return; }
+            const html = this.renderInstrumentToPrint(this.mapInstrumentPayloadToDoc(payload));
+            this.showPrintView(html);
+        });
+        saveBtn.addEventListener('click', async () => {
+            const payload = collect();
+            const vld = this.validateInstrumentPayload(payload);
+            if (!vld.valid) { this.showToast(vld.message, 'error'); return; }
+            try {
+                this.setButtonLoading(saveBtn, true);
+                const base = this.getApiBase();
+                if (base) {
+                    await this.createInstrumentAPI(payload);
+                } else {
+                    const newId = (this.data.financialInstruments?.length||0) + 1;
+                    this.data.financialInstruments = this.data.financialInstruments || [];
+                    this.data.financialInstruments.unshift({ id:newId, ...this.mapInstrumentPayloadToDoc(payload) });
+                    this.saveData('odicFinanceData', { ...this.data });
+                }
+                this.showToast('Financial Instrument saved', 'success');
+                this.closeModal();
+                this.loadFinancialInstrumentsData();
+            } catch(e) {
+                console.error(e);
+                try {
+                    const newId = (this.data.financialInstruments?.length||0) + 1;
+                    this.data.financialInstruments = this.data.financialInstruments || [];
+                    this.data.financialInstruments.unshift({ id:newId, ...this.mapInstrumentPayloadToDoc(payload) });
+                    this.saveData('odicFinanceData', { ...this.data });
+                    this.showToast('Saved locally (offline)', 'warning');
+                    this.closeModal();
+                    this.loadFinancialInstrumentsData();
+                } catch(e2) {
+                    console.error('Local fallback failed', e2);
+                    this.showToast(e.message||'Failed to save instrument', 'error');
+                }
+            } finally { this.setButtonLoading(saveBtn, false); }
+        });
+    }
+
+    validateInstrumentPayload(p) {
+        if (!p.type) return { valid:false, message:'Type is required' };
+        if (!p.category) return { valid:false, message:'Category is required' };
+        if (!(p.amount>=0)) return { valid:false, message:'Amount must be >= 0' };
+        if (!p.issueDate) return { valid:false, message:'Issue date is required' };
+        if (!p.dueDate) return { valid:false, message:'Due date is required' };
+        if (new Date(p.dueDate) < new Date(p.issueDate)) return { valid:false, message:'Due date cannot be before issue date' };
+        if ((p.type==='Bank Guarantee' || p.type==='Letter of Credit') && !p.bank) return { valid:false, message:'Bank is required for BG/LC' };
+        if ((['RTGS','NEFT','UPI B2B','e-Kuber','GeM Payment'].includes(p.type)) && !p.utr) return { valid:false, message:'UTR/Reference is required for selected type' };
+        return { valid:true };
+    }
+
+    mapInstrumentPayloadToDoc(p) {
+        return { number: p.number, type: p.type, category: p.category, counterparty: p.counterparty, amount: p.amount, issueDate: p.issueDate, dueDate: p.dueDate, bank: p.bank, utr: p.utr, status: 'active', compliance: p.compliance || [], company: this.data.company };
+    }
+
+    async createInstrumentAPI(payload) {
+        const base = this.getApiBase();
+        const res = await fetch(`${base}/api/financial-instruments`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json?.error?.message||'API error');
+        return json.data;
+    }
+
+    renderInstrumentToPrint(fi) {
+        return `
+        <div class="a4">
+          <div class="doc-header">
+            <div>
+              <h2>Financial Instrument</h2>
+              <div>No: <strong>${fi.number||''}</strong></div>
+              <div>Date: ${fi.issueDate||''}</div>
+            </div>
+            <div class="company-block">
+              <strong>${fi.company?.name||this.data.company.name}</strong><br>
+              GSTIN: ${this.data.company.gstin}<br>
+              ${this.data.company.address}
+            </div>
+          </div>
+          <div class="doc-party">
+            <div>
+              <h4>Instrument Details</h4>
+              <div><strong>Type:</strong> ${fi.type} (${fi.category})</div>
+              <div><strong>Counterparty:</strong> ${fi.counterparty||'—'}</div>
+              <div><strong>Amount:</strong> ${this.formatCurrency(fi.amount||0)}</div>
+              <div><strong>Bank/Ref:</strong> ${fi.bank||'-'} / ${fi.utr||'-'}</div>
+              <div><strong>Due Date:</strong> ${fi.dueDate||''}</div>
+            </div>
+          </div>
+          ${fi.compliance?.length?`<div class="custom-fields">${fi.compliance.map(c=>`<div class="cf-row"><span>Compliance</span><strong>${c}</strong></div>`).join('')}</div>`:''}
+          <div class="terms"><h4>Regulatory Notes</h4><ol>
+            <li>Template aligned to RBI Guidelines 2025 for banking instruments and payments.</li>
+            <li>Ensure KYC/KYB, AML and applicable FEMA/DPDP requirements are satisfied.</li>
+          </ol></div>
+          <div class="signature-block">
+            <div>
+              <div>For ${this.data.company.name}</div>
+              <div style="margin-top:60px">Authorised Signatory</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    exportFinancialInstruments() {
+        const list = (this.state.apiInstruments?.items?.length ? this.state.apiInstruments.items : (this.data.financialInstruments||[]));
+        const items = list.map(fi => ({ number: fi.number, type: fi.type, category: fi.category, counterparty: fi.counterparty||'', amount: fi.amount||0, issueDate: fi.issueDate||'', dueDate: fi.dueDate||'', bank: fi.bank||'', utr: fi.utr||'', status: fi.status||'' }));
+        const csv = this.datasetToCSV(items);
+        this.downloadFile(`financial_instruments_${this.buildNumber}.csv`, csv, 'text/csv');
+        this.showToast('Financial Instruments exported as CSV', 'success');
+    }
+
+    importFinancialInstruments() {
+        const input = document.createElement('input'); input.type='file'; input.accept='.csv,text/csv';
+        input.addEventListener('change', async () => {
+            const file = input.files[0]; if (!file) return; const text = await file.text();
+            const rows = this.parseCSV(text); if (!rows.length) { this.showToast('No rows found in CSV', 'warning'); return; }
+            let ok=0,bad=0;
+            for (const r of rows) {
+                const payload = {
+                    number: r.number || this.formatDocumentNumber('FI/{YYYY-YY}/{NNNN}', (this.data.financialInstruments?.length||0)+1),
+                    type: r.type || 'Bank Guarantee',
+                    category: r.category || 'B2B',
+                    counterparty: r.counterparty || '',
+                    amount: r.amount ? Number(r.amount) : 0,
+                    issueDate: r.issueDate || new Date().toISOString().split('T')[0],
+                    dueDate: r.dueDate || new Date(Date.now()+30*86400000).toISOString().split('T')[0],
+                    bank: r.bank || '',
+                    utr: r.utr || '',
+                };
+                const v = this.validateInstrumentPayload(payload);
+                if (!v.valid) { bad++; continue; }
+                try {
+                    const base = this.getApiBase();
+                    if (base) await this.createInstrumentAPI(payload);
+                    else {
+                        const newId = (this.data.financialInstruments?.length||0) + 1;
+                        this.data.financialInstruments = this.data.financialInstruments || [];
+                        this.data.financialInstruments.unshift({ id:newId, ...this.mapInstrumentPayloadToDoc(payload) });
+                    }
+                    ok++;
+                } catch (e) {
+                    console.warn('Instrument import error', e); bad++;
+                    try {
+                        const newId = (this.data.financialInstruments?.length||0) + 1;
+                        this.data.financialInstruments = this.data.financialInstruments || [];
+                        this.data.financialInstruments.unshift({ id:newId, ...this.mapInstrumentPayloadToDoc(payload) });
+                        ok++;
+                    } catch { bad++; }
+                }
+            }
+            this.saveData('odicFinanceData', { ...this.data });
+            this.loadFinancialInstrumentsData();
+            this.showToast(`Instrument import: ${ok} success, ${bad} failed`, bad?'warning':'success', 6000);
+        });
+        input.click();
+    }
+
+    scheduleDueDateAlerts() {
+        if (this._fiAlertTimer) return; // only once
+        this._fiAlertTimer = setInterval(() => {
+            try {
+                const list = (this.state.apiInstruments?.items?.length ? this.state.apiInstruments.items : (this.data.financialInstruments||[]));
+                const soon = list.filter(fi => {
+                    const d = this.daysUntil(fi.dueDate);
+                    return d >= 0 && d <= 7; // due within 7 days
+                });
+                if (soon.length) {
+                    this.showToast(`${soon.length} instrument(s) due within 7 days`, 'warning');
+                }
+            } catch {}
+        }, 60000); // check every minute while app is open
+    }
+
+    // ===== Compliance & Documentation Viewer =====
+    async loadDocsManifest() {
+        try {
+            const res = await fetch('/data/docs_manifest.json', { cache: 'no-cache' });
+            if (res.ok) {
+                this.docsManifest = await res.json();
+            } else {
+                this.docsManifest = [];
+            }
+        } catch (e) {
+            console.warn('Docs manifest load failed', e);
+            this.docsManifest = [];
+        }
+    }
+
+    setupComplianceDocsUI() {
+        const btn = document.getElementById('docsViewerBtn');
+        if (btn && !btn._odicBound) {
+            btn._odicBound = true;
+            btn.addEventListener('click', () => this.openDocumentationViewer());
+        }
+    }
+
+    openDocumentationViewer() {
+        const docs = Array.isArray(this.docsManifest) ? this.docsManifest : [];
+        const listHtml = docs.length ? `
+            <ul class="doc-list">
+                ${docs.map((d, i) => `
+                    <li class="doc-item" data-index="${i}">
+                        <i class="fas ${/pdf$/i.test(d.type)?'fa-file-pdf':'fa-file-alt'}"></i>
+                        <span>${d.name || d.path}</span>
+                        <a href="${d.path}" target="_blank" rel="noopener" class="doc-download"><i class="fas fa-download"></i></a>
+                    </li>`).join('')}
+            </ul>
+            <div id="docPreview" class="doc-preview" style="min-height:320px; background:#fff; border:1px solid var(--color-border);"></div>
+        ` : '<p>No documentation files available yet. Please upload or deploy docs to /public/data/docs.</p>';
+        const body = `
+            <div class="form-group"><small>Reference center for RBI 2025 guidelines, compliance diagrams, and specs bundled with this release.</small></div>
+            <div class="docs-viewer">${listHtml}</div>
+            <style>
+                .doc-list{list-style:none;padding:0;margin:0 0 12px;max-height:220px;overflow:auto}
+                .doc-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+                .doc-item:hover{background:var(--color-bg-1)}
+                .doc-item .doc-download{margin-left:auto}
+                .doc-preview iframe,.doc-preview img{width:100%;height:480px;border:0}
+                .doc-preview pre{white-space:pre-wrap;padding:12px}
+            </style>
+        `;
+        const footer = '<button class="btn btn--outline" onclick="odic.closeModal()">Close</button>';
+        this.openModal('Compliance & Documentation', body, footer);
+        const container = document.querySelector('.doc-list');
+        const preview = document.getElementById('docPreview');
+        if (container && preview) {
+            container.addEventListener('click', async (e) => {
+                const li = e.target.closest('.doc-item'); if (!li) return;
+                const idx = Number(li.getAttribute('data-index'));
+                const d = docs[idx]; if (!d) return;
+                const path = d.path;
+                const type = (d.type||'').toLowerCase();
+                if (/pdf$/.test(type)) {
+                    preview.innerHTML = `<iframe src="${path}"></iframe>`;
+                } else if (/(png|jpg|jpeg|gif|webp)$/.test(type)) {
+                    preview.innerHTML = `<img src="${path}" alt="${d.name||''}">`;
+                } else {
+                    // Text preview fallback
+                    try {
+                        const res = await fetch(path, { cache: 'no-cache' });
+                        const txt = await res.text();
+                        preview.innerHTML = `<pre>${this.escapeHtml(txt).slice(0, 20000)}</pre>`;
+                    } catch {
+                        preview.innerHTML = `<p>Preview not available. <a href="${path}" target="_blank" rel="noopener">Open</a></p>`;
+                    }
+                }
+            });
+        }
+    }
+
+    escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
 
     // ===== Vendors export/import
 
