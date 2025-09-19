@@ -7,9 +7,21 @@ const bad = (c, message, status = 400) => c.json({ success: false, error: { mess
 
 const app = new Hono();
 
-// CORS: permissive for now; will restrict in prod via allowlist
+// In production, lock CORS to your Pages domain(s)
+const ALLOWED_ORIGINS = [
+  'https://odic-finance-ui.pages.dev',
+  // Add custom domains here, e.g. 'https://finance.example.com'
+];
 app.use('/*', cors({
-  origin: '*',
+  origin: (origin) => {
+    if (!origin) return '*'; // allow curl / server-to-server
+    try {
+      const o = new URL(origin).origin;
+      return ALLOWED_ORIGINS.includes(o) ? o : '*';
+    } catch {
+      return '*';
+    }
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -78,7 +90,7 @@ app.get('/api/vendors', async (c) => {
 app.get('/api/vendors/:id', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
-  if (!id) return bad(c, 'Invalid vendor id', 400);
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid vendor id', 400);
   const stmt = DB.prepare('SELECT * FROM vendors WHERE id = ?');
   const row = await stmt.bind(id).first();
   if (!row) return bad(c, 'Vendor not found', 404);
@@ -157,6 +169,9 @@ app.post('/api/vendors', async (c) => {
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
     return ok(c, row);
   } catch (e) {
+    if ((e.message || '').includes('UNIQUE') && (e.message || '').includes('gstin')) {
+      return bad(c, 'GSTIN already exists', 409);
+    }
     return bad(c, `Failed to create vendor: ${e.message || e}`, 400);
   }
 });
@@ -164,7 +179,7 @@ app.post('/api/vendors', async (c) => {
 app.put('/api/vendors/:id', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
-  if (!id) return bad(c, 'Invalid vendor id', 400);
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid vendor id', 400);
   const body = await c.req.json().catch(() => ({}));
 
   // Build dynamic update with validation/normalization
@@ -199,6 +214,9 @@ app.put('/api/vendors/:id', async (c) => {
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
     return ok(c, row);
   } catch (e) {
+    if ((e.message || '').includes('UNIQUE') && (e.message || '').includes('gstin')) {
+      return bad(c, 'GSTIN already exists', 409);
+    }
     return bad(c, `Failed to update vendor: ${e.message || e}`, 400);
   }
 });
