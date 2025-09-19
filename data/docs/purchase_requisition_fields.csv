@@ -1,0 +1,14 @@
+Category,Field_Name,Data_Type,Required,Max_Length
+Basic Information,requisition_number,Alphanumeric,True,20
+Basic Information,requisition_date,Date,True,N/A
+Basic Information,priority_level,Dropdown,True,N/A
+Basic Information,expected_delivery_date,Date,True,N/A
+Requestor Information,requestor_name,Text,True,100
+Requestor Information,requestor_employee_id,Alphanumeric,True,20
+Requestor Information,requestor_department,Dropdown,True,N/A
+Item Details,item_description,Text,True,500
+Item Details,hsn_sac_code,Numeric,True,8
+Item Details,quantity_requested,Decimal,True,N/A
+Financial Information,estimated_unit_price,Decimal,True,N/A
+Financial Information,budget_code,Alphanumeric,True,20
+Approval Workflow,business_justification,Text,True,1000
