@@ -1,0 +1,7 @@
+Compliance_Area,Requirement,Deadline,Penalty,Auto_Check
+Payment Aggregator,RBI Authorization,Immediate,Cease Operations,Yes
+Digital Lending,Fair Practice Code,Ongoing,Rs.1 crore,Yes
+KYC/AML,Customer Due Diligence,At Onboarding,Rs.5 lakh,Yes
+Data Protection,DPDP Act Compliance,Ongoing,Rs.500 crore,Yes
+Unified Dashboard,CMS Implementation,"April 30, 2025",Regulatory Action,Yes
+Project Finance,New Directions 2025,"June 19, 2025",Asset Classification,Yes

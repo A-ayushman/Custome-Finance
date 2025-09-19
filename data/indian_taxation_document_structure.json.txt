@@ -1,0 +1,4 @@
+{
+  "NEW_TAX_REGIME_2025": {"description":"Default FY 2025-26 New Regime","slabs":[{"upto":300000,"rate":0},{"upto":700000,"rate":5},{"upto":1000000,"rate":10},{"upto":1200000,"rate":15},{"upto":1500000,"rate":20},{"above":1500000,"rate":30}],"rebate_limit":700000},
+  "OLD_TAX_REGIME": {"description":"Legacy regime with deductions","slabs":[{"upto":250000,"rate":0},{"upto":500000,"rate":5},{"upto":1000000,"rate":20},{"above":1000000,"rate":30}],"standard_deduction":50000}
+}
