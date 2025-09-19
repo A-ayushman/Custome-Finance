@@ -5,6 +5,11 @@ account_id = "c59323d98c963ded9bac4a1d6a29ce75"
 
 [env.production]
 vars = { ENVIRONMENT = "production" }
+# When the odicinternational.com zone is fully onboarded to Cloudflare (nameservers set),
+# these routes will map the production API to your custom domain during deploys.
+routes = [
+  { pattern = "api.odicinternational.com/*", zone_name = "odicinternational.com" }
+]
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -14,6 +19,10 @@ migrations_dir = "migrations"
 
 [env.staging]
 vars = { ENVIRONMENT = "staging" }
+# Staging API custom domain route (will succeed after the zone finishes setup)
+routes = [
+  { pattern = "api-staging.odicinternational.com/*", zone_name = "odicinternational.com" }
+]
 
 [[env.staging.d1_databases]]
 binding = "DB"
