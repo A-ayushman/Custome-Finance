@@ -14,6 +14,7 @@
     "db:seed:idempotent": "wrangler d1 execute odic-finance-prod --remote --config wrangler-worker.toml --env production --file=./migrations/0005_seed_idempotent.sql"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
     "hono": "^3.12.0"
   },
   "devDependencies": {
