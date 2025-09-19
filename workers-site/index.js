@@ -121,7 +121,39 @@ app.post('/api/vendors', async (c) => {
     const sanitized = params.map(v => (v === undefined ? null : v));
     const res = await stmt.bind(...sanitized).run();
 
-    const id = res.lastRowId;
+    // Get inserted id robustly across D1 versions
+    let id = res?.lastRowId ?? res?.meta?.last_row_id ?? res?.meta?.lastRowId;
+    if (id === undefined || id === null) {
+      try {
+        const last = await DB.prepare('SELECT last_insert_rowid() AS id').first();
+        id = last?.id;
+      } catch (_) {
+        // ignore and fall back to responding with input payload
+      }
+    }
+
+    if (id === undefined || id === null) {
+      // Fallback: respond with normalized payload when id is unavailable
+      return ok(c, {
+        id: null,
+        company_name: body.company_name,
+        legal_name: body.legal_name ?? null,
+        gstin: body.gstin ?? null,
+        pan: body.pan ?? null,
+        address_lines: body.address_lines ?? null,
+        state: body.state ?? null,
+        state_code: body.state_code ?? null,
+        pin_code: body.pin_code ?? null,
+        contact_person: body.contact_person ?? null,
+        contact_number: body.contact_number ?? null,
+        email: body.email ?? null,
+        business_type: body.business_type ?? null,
+        status,
+        rating,
+        tags: body.tags ?? null
+      });
+    }
+
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
     return ok(c, row);
   } catch (e) {
