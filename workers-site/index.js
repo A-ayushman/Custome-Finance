@@ -14,6 +14,19 @@ app.use('/*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Helpers: allowed statuses and mapping for common aliases
+const ALLOWED_STATUSES = new Set(['pending', 'approved', 'rejected', 'suspended']);
+const STATUS_ALIASES = new Map([
+  ['active', 'approved'],
+  ['inactive', 'suspended'],
+]);
+const normalizeStatus = (val) => {
+  if (!val) return undefined;
+  const s = String(val).trim().toLowerCase();
+  const mapped = STATUS_ALIASES.get(s) || s;
+  return mapped;
+};
+
 // Root route for basic API check
 app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
 
@@ -27,7 +40,8 @@ app.get('/api/vendors', async (c) => {
   const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
   const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '25', 10), 1), 100);
   const search = (url.searchParams.get('search') || '').trim();
-  const status = (url.searchParams.get('status') || '').trim();
+  const statusRaw = (url.searchParams.get('status') || '').trim();
+  const status = normalizeStatus(statusRaw);
 
   const where = [];
   const params = [];
@@ -36,6 +50,9 @@ app.get('/api/vendors', async (c) => {
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
   if (status) {
+    if (!ALLOWED_STATUSES.has(status)) {
+      return bad(c, `Invalid status filter. Allowed: ${[...ALLOWED_STATUSES].join(', ')}`);
+    }
     where.push('status = ?');
     params.push(status);
   }
@@ -69,29 +86,41 @@ app.post('/api/vendors', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   if (!body.company_name) return bad(c, 'company_name is required');
 
-  const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const res = await stmt.bind(
-    body.company_name,
-    body.legal_name || null,
-    body.gstin || null,
-    body.pan || null,
-    body.address_lines ? JSON.stringify(body.address_lines) : null,
-    body.state || null,
-    body.state_code || null,
-    body.pin_code || null,
-    body.contact_person || null,
-    body.contact_number || null,
-    body.email || null,
-    body.business_type || null,
-    body.status || 'pending',
-    typeof body.rating === 'number' ? body.rating : 0,
-    body.tags ? JSON.stringify(body.tags) : null
-  ).run();
+  // Normalize and validate fields
+  const status = normalizeStatus(body.status) || 'pending';
+  if (status && !ALLOWED_STATUSES.has(status)) {
+    return bad(c, `Invalid status. Allowed: ${[...ALLOWED_STATUSES].join(', ')}`);
+  }
+  let rating = 0;
+  if (typeof body.rating === 'number') rating = body.rating;
 
-  const id = res.lastRowId;
-  const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
-  return ok(c, row);
+  try {
+    const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const res = await stmt.bind(
+      body.company_name,
+      body.legal_name || null,
+      body.gstin || null,
+      body.pan || null,
+      body.address_lines ? JSON.stringify(body.address_lines) : null,
+      body.state || null,
+      body.state_code || null,
+      body.pin_code || null,
+      body.contact_person || null,
+      body.contact_number || null,
+      body.email || null,
+      body.business_type || null,
+      status,
+      rating,
+      body.tags ? JSON.stringify(body.tags) : null
+    ).run();
+
+    const id = res.lastRowId;
+    const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
+    return ok(c, row);
+  } catch (e) {
+    return bad(c, `Failed to create vendor: ${e.message || e}`, 400);
+  }
 });
 
 app.put('/api/vendors/:id', async (c) => {
@@ -100,13 +129,22 @@ app.put('/api/vendors/:id', async (c) => {
   if (!id) return bad(c, 'Invalid vendor id', 400);
   const body = await c.req.json().catch(() => ({}));
 
-  // Build dynamic update
+  // Build dynamic update with validation/normalization
   const fields = ['company_name','legal_name','gstin','pan','address_lines','state','state_code','pin_code','contact_person','contact_number','email','business_type','status','rating','tags'];
   const sets = [];
   const params = [];
   for (const f of fields) {
     if (f in body) {
       let val = body[f];
+      if (f === 'status') {
+        val = normalizeStatus(val);
+        if (!val || !ALLOWED_STATUSES.has(val)) {
+          return bad(c, `Invalid status. Allowed: ${[...ALLOWED_STATUSES].join(', ')}`);
+        }
+      }
+      if (f === 'rating' && typeof val !== 'number') {
+        return bad(c, 'rating must be a number');
+      }
       if (['address_lines','tags'].includes(f) && val != null) val = JSON.stringify(val);
       sets.push(`${f} = ?`);
       params.push(val);
@@ -116,9 +154,13 @@ app.put('/api/vendors/:id', async (c) => {
   params.push(id);
 
   const sql = `UPDATE vendors SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
-  await DB.prepare(sql).bind(...params).run();
-  const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
-  return ok(c, row);
+  try {
+    await DB.prepare(sql).bind(...params).run();
+    const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
+    return ok(c, row);
+  } catch (e) {
+    return bad(c, `Failed to update vendor: ${e.message || e}`, 400);
+  }
 });
 
 // Example additional API route
