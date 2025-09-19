@@ -10,7 +10,11 @@ const app = new Hono();
 // In production, lock CORS to your Pages domain(s)
 const ALLOWED_ORIGINS = [
   'https://odic-finance-ui.pages.dev',
-  // Add custom domains here, e.g. 'https://finance.example.com'
+  'https://dashboard.odicinternational.com',
+  'https://api.odicinternational.com',
+  // Add staging domains if used
+  'https://dashboard-staging.odicinternational.com',
+  'https://api-staging.odicinternational.com',
 ];
 // Strict CORS gate for browsers: block disallowed origins early
 app.use('/*', async (c, next) => {
@@ -66,6 +70,8 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'no-referrer');
   c.header('X-Frame-Options', 'DENY');
   c.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // Basic cache controls for API responses
+  c.header('Cache-Control', 'no-store');
 });
 
 // Basic validators
