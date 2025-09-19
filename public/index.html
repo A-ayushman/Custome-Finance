@@ -267,6 +267,10 @@
                     <i class="fas fa-history"></i>
                     <span>Audit Logs</span>
                 </a>
+                <a href="#" class="nav-item" data-screen="financial-instruments" title="Financial Instruments">
+                    <i class="fas fa-university"></i>
+                    <span>Financial Instruments</span>
+                </a>
                 <a href="#" class="nav-item" data-screen="settings" title="System Configuration">
                     <i class="fas fa-cog"></i>
                     <span>System Settings</span>
@@ -1651,6 +1655,38 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Financial Instruments Screen -->
+            <div id="financial-instruments" class="content-screen">
+                <div class="content-header">
+                    <div class="page-title">
+                        <h1><i class="fas fa-university"></i> Financial Instruments</h1>
+                        <p>Unified module for B2B, B2G instruments and compliance tracking per RBI 2025 guidelines</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" id="importInstrumentsBtn"><i class="fas fa-upload"></i> Import CSV</button>
+                        <button class="btn btn--secondary" id="exportInstrumentsBtn"><i class="fas fa-download"></i> Export</button>
+                        <button class="btn btn--primary" id="createInstrumentBtn"><i class="fas fa-plus"></i> New Instrument</button>
+                    </div>
+                </div>
+                <div class="feature-placeholder">
+                    <div class="feature-icon"><i class="fas fa-diagram-project"></i></div>
+                    <h3>Coverage</h3>
+                    <p>Bank Guarantees, Letters of Credit, RTGS/NEFT/UPI B2B, e-Kuber, GeM payments, Digital Signature workflows, PFMS/Audit Trail.</p>
+                </div>
+                <div class="table-section">
+                    <div class="table-container enhanced">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Instrument No</th><th>Type</th><th>Category</th><th>Counterparty</th><th>Amount</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fiTableBody"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
