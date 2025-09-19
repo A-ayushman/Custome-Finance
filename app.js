@@ -13,7 +13,7 @@
 class ODICFinanceSystem {
     constructor() {
         this.version = '2.1.1';
-        this.buildNumber = '2025.09.18';
+        this.buildNumber = '2025.09.19';
         this.currentUser = null;
         this.currentTheme = 'professional-blue';
         this.currentScreen = 'dashboard';
