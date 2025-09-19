@@ -74,6 +74,28 @@ app.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
 });
 
+// Simple in-memory rate limit for mutating requests (note: per-worker instance)
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 120; // max requests per IP per window for POST/PUT/DELETE
+const __rate_buckets = new Map();
+app.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+    const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    const now = Date.now();
+    const b = __rate_buckets.get(ip) || { start: now, count: 0 };
+    if (now - b.start > RATE_LIMIT_WINDOW_MS) {
+      b.start = now; b.count = 0;
+    }
+    b.count++;
+    __rate_buckets.set(ip, b);
+    if (b.count > RATE_LIMIT_MAX) {
+      return bad(c, 'Rate limit exceeded. Please retry later.', 429);
+    }
+  }
+  await next();
+});
+
 // Basic validators
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
