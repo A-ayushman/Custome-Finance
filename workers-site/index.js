@@ -221,6 +221,16 @@ app.put('/api/vendors/:id', async (c) => {
   }
 });
 
+// GSTIN availability endpoint
+app.get('/api/vendors/unique/gstin/:gstin', async (c) => {
+  const { DB } = c.env;
+  const gstin = (c.req.param('gstin') || '').trim();
+  if (!gstin) return bad(c, 'gstin is required');
+  const row = await DB.prepare('SELECT 1 AS exists FROM vendors WHERE gstin = ? LIMIT 1').bind(gstin).first();
+  const available = !row;
+  return ok(c, { gstin, available });
+});
+
 // Example additional API route
 app.get('/api/data', (c) => ok(c, { message: 'Here is some sample data' }));
 
