@@ -27,6 +27,10 @@ const normalizeStatus = (val) => {
   return mapped;
 };
 
+// DB param sanitizers: D1 does not allow `undefined` in .bind()
+const toDb = (v) => (v === undefined ? null : v);
+const toJsonOrNull = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
+
 // Root route for basic API check
 app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
 
@@ -98,21 +102,21 @@ app.post('/api/vendors', async (c) => {
     const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const res = await stmt.bind(
-      body.company_name,
-      body.legal_name || null,
-      body.gstin || null,
-      body.pan || null,
-      body.address_lines ? JSON.stringify(body.address_lines) : null,
-      body.state || null,
-      body.state_code || null,
-      body.pin_code || null,
-      body.contact_person || null,
-      body.contact_number || null,
-      body.email || null,
-      body.business_type || null,
-      status,
-      rating,
-      body.tags ? JSON.stringify(body.tags) : null
+      toDb(body.company_name),
+      toDb(body.legal_name),
+      toDb(body.gstin),
+      toDb(body.pan),
+      toJsonOrNull(body.address_lines),
+      toDb(body.state),
+      toDb(body.state_code),
+      toDb(body.pin_code),
+      toDb(body.contact_person),
+      toDb(body.contact_number),
+      toDb(body.email),
+      toDb(body.business_type),
+      toDb(status),
+      toDb(rating),
+      toJsonOrNull(body.tags)
     ).run();
 
     const id = res.lastRowId;
@@ -145,7 +149,9 @@ app.put('/api/vendors/:id', async (c) => {
       if (f === 'rating' && typeof val !== 'number') {
         return bad(c, 'rating must be a number');
       }
-      if (['address_lines','tags'].includes(f) && val != null) val = JSON.stringify(val);
+      if (['address_lines','tags'].includes(f)) val = (val === undefined ? null : JSON.stringify(val));
+      // Convert undefined to null for D1 safety
+      if (val === undefined) val = null;
       sets.push(`${f} = ?`);
       params.push(val);
     }
