@@ -22,3 +22,5 @@ dist/
 
 # Windows system files
 Thumbs.db
+
+.ssh/

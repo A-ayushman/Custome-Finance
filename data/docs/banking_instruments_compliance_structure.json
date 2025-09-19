@@ -1,0 +1,48 @@
+{
+  "BUSINESS_TRANSACTION_TYPES": {
+    "B2B_BUSINESS_TO_BUSINESS": {
+      "payment_instruments": [
+        "UPI B2B",
+        "RTGS",
+        "NEFT",
+        "IMPS",
+        "Commercial Cards",
+        "Bank Guarantees",
+        "Letters of Credit"
+      ],
+      "transaction_limits": {
+        "UPI_B2B": "Rs. 1 crore per transaction",
+        "RTGS": "Minimum Rs. 2 lakh",
+        "NEFT": "Up to Rs. 50 lakh per transaction"
+      }
+    },
+    "B2C_BUSINESS_TO_CONSUMER": {
+      "payment_instruments": [
+        "UPI",
+        "Cards",
+        "Net Banking",
+        "Mobile Wallets",
+        "BNPL"
+      ],
+      "transaction_limits": {
+        "UPI": "Rs. 1 lakh per transaction",
+        "Mobile_Wallets": "Rs. 2 lakh per month"
+      }
+    },
+    "B2G_BUSINESS_TO_GOVERNMENT": {
+      "payment_instruments": [
+        "RTGS",
+        "e-Kuber",
+        "GeM Payments",
+        "Challan Payments"
+      ]
+    }
+  },
+  "RBI_COMPLIANCE_2025": {
+    "payment_aggregator_norms": {
+      "minimum_net_worth": "Rs. 15 crore",
+      "authorization_required": true,
+      "escrow_account_mandatory": true
+    }
+  }
+}
