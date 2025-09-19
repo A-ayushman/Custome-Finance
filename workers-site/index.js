@@ -12,14 +12,30 @@ const ALLOWED_ORIGINS = [
   'https://odic-finance-ui.pages.dev',
   // Add custom domains here, e.g. 'https://finance.example.com'
 ];
-app.use('/*', cors({
-  origin: (origin) => {
-    if (!origin) return '*'; // allow curl / server-to-server
+// Strict CORS gate for browsers: block disallowed origins early
+app.use('/*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  if (origin) {
     try {
       const o = new URL(origin).origin;
-      return ALLOWED_ORIGINS.includes(o) ? o : '*';
+      if (!ALLOWED_ORIGINS.includes(o)) {
+        return bad(c, 'CORS not allowed for this origin', 403);
+      }
     } catch {
-      return '*';
+      return bad(c, 'Invalid Origin header', 400);
+    }
+  }
+  await next();
+});
+// CORS middleware: reflect allowed origin for browsers, allow '*' for server-to-server
+app.use('/*', cors({
+  origin: (origin) => {
+    if (!origin) return '*';
+    try {
+      const o = new URL(origin).origin;
+      return ALLOWED_ORIGINS.includes(o) ? o : '';
+    } catch {
+      return '';
     }
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -42,6 +58,21 @@ const normalizeStatus = (val) => {
 // DB param sanitizers: D1 does not allow `undefined` in .bind()
 const toDb = (v) => (v === undefined ? null : v);
 const toJsonOrNull = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
+
+// Security headers for all responses
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('Referrer-Policy', 'no-referrer');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+});
+
+// Basic validators
+const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const isValidGSTIN = (s) => typeof s === 'string' && GSTIN_REGEX.test(s.trim());
+const isValidPAN = (s) => typeof s === 'string' && PAN_REGEX.test(s.trim());
 
 // Root route for basic API check
 app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
@@ -101,6 +132,8 @@ app.post('/api/vendors', async (c) => {
   const { DB } = c.env;
   const body = await c.req.json().catch(() => ({}));
   if (!body.company_name) return bad(c, 'company_name is required');
+  if (body.gstin && !isValidGSTIN(body.gstin)) return bad(c, 'Invalid GSTIN format');
+  if (body.pan && !isValidPAN(body.pan)) return bad(c, 'Invalid PAN format');
 
   // Normalize and validate fields
   const status = normalizeStatus(body.status) || 'pending';
@@ -198,6 +231,8 @@ app.put('/api/vendors/:id', async (c) => {
       if (f === 'rating' && typeof val !== 'number') {
         return bad(c, 'rating must be a number');
       }
+      if (f === 'gstin' && val && !isValidGSTIN(val)) return bad(c, 'Invalid GSTIN format');
+      if (f === 'pan' && val && !isValidPAN(val)) return bad(c, 'Invalid PAN format');
       if (['address_lines','tags'].includes(f)) val = (val === undefined || val === null ? null : JSON.stringify(val));
       // Convert undefined to null for D1 safety
       if (val === undefined) val = null;
@@ -229,6 +264,84 @@ app.get('/api/vendors/unique/gstin/:gstin', async (c) => {
   const row = await DB.prepare('SELECT 1 AS exists FROM vendors WHERE gstin = ? LIMIT 1').bind(gstin).first();
   const available = !row;
   return ok(c, { gstin, available });
+});
+
+// CSV export of vendors
+app.get('/api/vendors/export.csv', async (c) => {
+  const { DB } = c.env;
+  const rows = await DB.prepare('SELECT id, company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating, created_at FROM vendors ORDER BY created_at DESC').all();
+  const items = rows.results || [];
+  const header = ['id','company_name','legal_name','gstin','pan','state','state_code','pin_code','business_type','status','rating','created_at'];
+  const esc = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [header.join(',')].concat(items.map(r => header.map(h => esc(r[h])).join(','))).join('\n');
+  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store' }});
+});
+
+// CSV import of vendors (upsert by GSTIN)
+app.post('/api/vendors/import.csv', async (c) => {
+  const { DB } = c.env;
+  const ct = c.req.header('Content-Type') || '';
+  let text = '';
+  if (ct.includes('multipart/form-data')) {
+    const fd = await c.req.formData();
+    const file = fd.get('file');
+    if (!file) return bad(c, 'file field is required (multipart)');
+    text = await file.text();
+  } else {
+    text = await c.req.text();
+  }
+  if (!text) return bad(c, 'Empty CSV');
+
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+  if (lines.length <= 1) return bad(c, 'CSV must include header and at least one row');
+  const header = lines[0].split(',').map(h => h.trim());
+  const idx = (name) => header.indexOf(name);
+  const required = ['company_name'];
+  for (const r of required) if (idx(r) === -1) return bad(c, `Missing required column: ${r}`);
+
+  let inserted = 0, updated = 0, skipped = 0, errors = [];
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i];
+    const cols = raw.match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s => s.replace(/^,/, '').replace(/^\"|\"$/g, '')) || raw.split(',');
+    const rec = Object.fromEntries(header.map((h, j) => [h, cols[j] ?? '']));
+
+    const company_name = rec.company_name?.trim();
+    const gstin = rec.gstin?.trim() || null;
+    const status = normalizeStatus(rec.status) || 'pending';
+    const rating = rec.rating ? Number(rec.rating) : 0;
+
+    if (!company_name) { skipped++; continue; }
+    if (gstin && !isValidGSTIN(gstin)) { errors.push(`Row ${i+1}: invalid GSTIN`); continue; }
+
+    try {
+      const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(gstin) DO UPDATE SET company_name=excluded.company_name, legal_name=excluded.legal_name, pan=excluded.pan, state=excluded.state, state_code=excluded.state_code, pin_code=excluded.pin_code, business_type=excluded.business_type, status=excluded.status, rating=excluded.rating, updated_at=CURRENT_TIMESTAMP`);
+      const res = await stmt.bind(
+        company_name,
+        rec.legal_name || null,
+        gstin,
+        rec.pan || null,
+        rec.state || null,
+        rec.state_code || null,
+        rec.pin_code || null,
+        rec.business_type || null,
+        status,
+        rating
+      ).run();
+      if (res.meta?.rows_written === 1 && res.meta?.changes === 1) inserted++;
+      else updated++;
+    } catch (e) {
+      if ((e.message || '').includes('UNIQUE') && (e.message || '').includes('gstin')) { updated++; continue; }
+      errors.push(`Row ${i+1}: ${e.message || e}`);
+    }
+  }
+
+  return ok(c, { inserted, updated, skipped, errors });
 });
 
 // Example additional API route
