@@ -11,3 +11,16 @@ binding = "DB"
 database_name = "odic-finance-prod"
 database_id = "bce6cc34-9924-4203-9f81-665255888dc2"
 migrations_dir = "migrations"
+
+[env.staging]
+vars = { ENVIRONMENT = "staging" }
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "odic-finance-staging"
+# NOTE: update this ID after creating the D1 DB for staging
+# Run: wrangler d1 create odic-finance-staging
+# Then set the returned uuid here and in wrangler.toml if used
+# Example: database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+migrations_dir = "migrations"

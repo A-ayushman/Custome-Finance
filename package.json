@@ -8,9 +8,13 @@
     "dev": "wrangler pages dev public",
     "deploy:pages": "wrangler pages deploy public --branch main",
     "deploy:worker": "wrangler deploy --config wrangler-worker.toml --env production",
+    "deploy:worker:staging": "wrangler deploy --config wrangler-worker.toml --env staging",
     "db:create": "wrangler d1 create odic-finance-prod",
+    "db:create:staging": "wrangler d1 create odic-finance-staging",
     "db:migrate": "wrangler d1 migrations apply odic-finance-prod --remote --config wrangler-worker.toml --env production",
+    "db:migrate:staging": "wrangler d1 migrations apply odic-finance-staging --remote --config wrangler-worker.toml --env staging",
     "db:seed": "wrangler d1 execute odic-finance-prod --remote --config wrangler-worker.toml --env production --file=./migrations/0002_seed_data.sql",
+    "db:seed:staging": "wrangler d1 execute odic-finance-staging --remote --config wrangler-worker.toml --env staging --file=./migrations/0005_seed_idempotent.sql",
     "db:seed:idempotent": "wrangler d1 execute odic-finance-prod --remote --config wrangler-worker.toml --env production --file=./migrations/0005_seed_idempotent.sql"
   },
   "dependencies": {
