@@ -1,0 +1,8 @@
+field,label,required,type
+po_number,PO Number,true,text
+vendor_name,Vendor,true,text
+vendor_gstin,VENDOR GSTIN,false,text
+item_description,Description,true,text
+hsn,HSN/SAC,false,text
+qty,Qty,true,number
+price,Unit Price,true,number

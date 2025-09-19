@@ -26,6 +26,7 @@ class ODICFinanceSystem {
         this.taxRegime = this.getSavedData('odicTaxRegime') || 'NEW_TAX_REGIME_2025';
         this.taxConfig = null;
         this.docSchemas = {};
+        this.docsManifest = [];
         
         // 8 Premium Enterprise Themes
         this.themes = [
@@ -775,6 +776,9 @@ class ODICFinanceSystem {
         this.setupFinancialInstrumentsUI && this.setupFinancialInstrumentsUI();
         this.loadFinancialInstrumentsData && this.loadFinancialInstrumentsData();
         this.scheduleDueDateAlerts && this.scheduleDueDateAlerts();
+        // Compliance documentation loader and UI
+        this.loadDocsManifest && this.loadDocsManifest();
+        this.setupComplianceDocsUI && this.setupComplianceDocsUI();
         
         // Initialize charts after DOM is ready
         setTimeout(() => {
@@ -3360,6 +3364,85 @@ class ODICFinanceSystem {
             } catch {}
         }, 60000); // check every minute while app is open
     }
+
+    // ===== Compliance & Documentation Viewer =====
+    async loadDocsManifest() {
+        try {
+            const res = await fetch('/data/docs_manifest.json', { cache: 'no-cache' });
+            if (res.ok) {
+                this.docsManifest = await res.json();
+            } else {
+                this.docsManifest = [];
+            }
+        } catch (e) {
+            console.warn('Docs manifest load failed', e);
+            this.docsManifest = [];
+        }
+    }
+
+    setupComplianceDocsUI() {
+        const btn = document.getElementById('docsViewerBtn');
+        if (btn && !btn._odicBound) {
+            btn._odicBound = true;
+            btn.addEventListener('click', () => this.openDocumentationViewer());
+        }
+    }
+
+    openDocumentationViewer() {
+        const docs = Array.isArray(this.docsManifest) ? this.docsManifest : [];
+        const listHtml = docs.length ? `
+            <ul class="doc-list">
+                ${docs.map((d, i) => `
+                    <li class="doc-item" data-index="${i}">
+                        <i class="fas ${/pdf$/i.test(d.type)?'fa-file-pdf':'fa-file-alt'}"></i>
+                        <span>${d.name || d.path}</span>
+                        <a href="${d.path}" target="_blank" rel="noopener" class="doc-download"><i class="fas fa-download"></i></a>
+                    </li>`).join('')}
+            </ul>
+            <div id="docPreview" class="doc-preview" style="min-height:320px; background:#fff; border:1px solid var(--color-border);"></div>
+        ` : '<p>No documentation files available yet. Please upload or deploy docs to /public/data/docs.</p>';
+        const body = `
+            <div class="form-group"><small>Reference center for RBI 2025 guidelines, compliance diagrams, and specs bundled with this release.</small></div>
+            <div class="docs-viewer">${listHtml}</div>
+            <style>
+                .doc-list{list-style:none;padding:0;margin:0 0 12px;max-height:220px;overflow:auto}
+                .doc-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+                .doc-item:hover{background:var(--color-bg-1)}
+                .doc-item .doc-download{margin-left:auto}
+                .doc-preview iframe,.doc-preview img{width:100%;height:480px;border:0}
+                .doc-preview pre{white-space:pre-wrap;padding:12px}
+            </style>
+        `;
+        const footer = '<button class="btn btn--outline" onclick="odic.closeModal()">Close</button>';
+        this.openModal('Compliance & Documentation', body, footer);
+        const container = document.querySelector('.doc-list');
+        const preview = document.getElementById('docPreview');
+        if (container && preview) {
+            container.addEventListener('click', async (e) => {
+                const li = e.target.closest('.doc-item'); if (!li) return;
+                const idx = Number(li.getAttribute('data-index'));
+                const d = docs[idx]; if (!d) return;
+                const path = d.path;
+                const type = (d.type||'').toLowerCase();
+                if (/pdf$/.test(type)) {
+                    preview.innerHTML = `<iframe src="${path}"></iframe>`;
+                } else if (/(png|jpg|jpeg|gif|webp)$/.test(type)) {
+                    preview.innerHTML = `<img src="${path}" alt="${d.name||''}">`;
+                } else {
+                    // Text preview fallback
+                    try {
+                        const res = await fetch(path, { cache: 'no-cache' });
+                        const txt = await res.text();
+                        preview.innerHTML = `<pre>${this.escapeHtml(txt).slice(0, 20000)}</pre>`;
+                    } catch {
+                        preview.innerHTML = `<p>Preview not available. <a href="${path}" target="_blank" rel="noopener">Open</a></p>`;
+                    }
+                }
+            });
+        }
+    }
+
+    escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
 
     // ===== Vendors export/import
 
