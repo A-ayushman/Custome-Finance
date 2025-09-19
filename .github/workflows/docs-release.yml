@@ -1,0 +1,32 @@
+name: Docs PDFs & Release on: workflow_dispatch: push: tags: - 'v*..'
+
+jobs: build-docs: runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: Install md-to-pdf toolchain run: | sudo apt-get update sudo apt-get install -y pandoc - name: Build PDFs from docs/.md run: | mkdir -p artifacts for f in docs/.md; do base=
+(
+b
+a
+s
+e
+n
+a
+m
+e
+"
+(basename"f" .md) pandoc "
+f
+"
+−
+o
+"
+a
+r
+t
+i
+f
+a
+c
+t
+s
+/
+f"−o"artifacts/{base}.pdf" || echo "Failed to convert $f" done - name: Upload PDFs uses: actions/upload-artifact@v4 with: name: docs-pdfs path: artifacts/*.pdf
+
+create-release: needs: build-docs runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: Download PDFs uses: actions/download-artifact@v4 with: name: docs-pdfs path: artifacts - name: Create GitHub Release uses: softprops/action-gh-release@v2 with: files: artifacts/*.pdf env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
