@@ -101,23 +101,25 @@ app.post('/api/vendors', async (c) => {
   try {
     const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const res = await stmt.bind(
-      toDb(body.company_name),
-      toDb(body.legal_name),
-      toDb(body.gstin),
-      toDb(body.pan),
-      toJsonOrNull(body.address_lines),
-      toDb(body.state),
-      toDb(body.state_code),
-      toDb(body.pin_code),
-      toDb(body.contact_person),
-      toDb(body.contact_number),
-      toDb(body.email),
-      toDb(body.business_type),
-      toDb(status),
-      toDb(rating),
-      toJsonOrNull(body.tags)
-    ).run();
+    const params = [
+      body.company_name,
+      body.legal_name,
+      body.gstin,
+      body.pan,
+      body.address_lines === undefined || body.address_lines === null ? null : JSON.stringify(body.address_lines),
+      body.state,
+      body.state_code,
+      body.pin_code,
+      body.contact_person,
+      body.contact_number,
+      body.email,
+      body.business_type,
+      status,
+      rating,
+      body.tags === undefined || body.tags === null ? null : JSON.stringify(body.tags)
+    ];
+    const sanitized = params.map(v => (v === undefined ? null : v));
+    const res = await stmt.bind(...sanitized).run();
 
     const id = res.lastRowId;
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
@@ -149,7 +151,7 @@ app.put('/api/vendors/:id', async (c) => {
       if (f === 'rating' && typeof val !== 'number') {
         return bad(c, 'rating must be a number');
       }
-      if (['address_lines','tags'].includes(f)) val = (val === undefined ? null : JSON.stringify(val));
+      if (['address_lines','tags'].includes(f)) val = (val === undefined || val === null ? null : JSON.stringify(val));
       // Convert undefined to null for D1 safety
       if (val === undefined) val = null;
       sets.push(`${f} = ?`);
