@@ -27,6 +27,10 @@ const normalizeStatus = (val) => {
   return mapped;
 };
 
+// DB param sanitizers: D1 does not allow `undefined` in .bind()
+const toDb = (v) => (v === undefined ? null : v);
+const toJsonOrNull = (v) => (v === undefined || v === null ? null : JSON.stringify(v));
+
 // Root route for basic API check
 app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
 
@@ -97,23 +101,25 @@ app.post('/api/vendors', async (c) => {
   try {
     const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const res = await stmt.bind(
+    const params = [
       body.company_name,
-      body.legal_name || null,
-      body.gstin || null,
-      body.pan || null,
-      body.address_lines ? JSON.stringify(body.address_lines) : null,
-      body.state || null,
-      body.state_code || null,
-      body.pin_code || null,
-      body.contact_person || null,
-      body.contact_number || null,
-      body.email || null,
-      body.business_type || null,
+      body.legal_name,
+      body.gstin,
+      body.pan,
+      body.address_lines === undefined || body.address_lines === null ? null : JSON.stringify(body.address_lines),
+      body.state,
+      body.state_code,
+      body.pin_code,
+      body.contact_person,
+      body.contact_number,
+      body.email,
+      body.business_type,
       status,
       rating,
-      body.tags ? JSON.stringify(body.tags) : null
-    ).run();
+      body.tags === undefined || body.tags === null ? null : JSON.stringify(body.tags)
+    ];
+    const sanitized = params.map(v => (v === undefined ? null : v));
+    const res = await stmt.bind(...sanitized).run();
 
     const id = res.lastRowId;
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
@@ -145,7 +151,9 @@ app.put('/api/vendors/:id', async (c) => {
       if (f === 'rating' && typeof val !== 'number') {
         return bad(c, 'rating must be a number');
       }
-      if (['address_lines','tags'].includes(f) && val != null) val = JSON.stringify(val);
+      if (['address_lines','tags'].includes(f)) val = (val === undefined || val === null ? null : JSON.stringify(val));
+      // Convert undefined to null for D1 safety
+      if (val === undefined) val = null;
       sets.push(`${f} = ?`);
       params.push(val);
     }
