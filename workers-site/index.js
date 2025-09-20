@@ -294,6 +294,17 @@ app.get('/api/vendors/unique/gstin/:gstin', async (c) => {
   return ok(c, { gstin, available });
 });
 
+// PAN availability endpoint
+app.get('/api/vendors/unique/pan/:pan', async (c) => {
+  const { DB } = c.env;
+  const pan = (c.req.param('pan') || '').trim();
+  if (!pan) return bad(c, 'pan is required');
+  if (!isValidPAN(pan)) return bad(c, 'Invalid PAN format');
+  const row = await DB.prepare('SELECT 1 AS exists FROM vendors WHERE pan = ? LIMIT 1').bind(pan).first();
+  const available = !row;
+  return ok(c, { pan, available });
+});
+
 // CSV export of vendors
 app.get('/api/vendors/export.csv', async (c) => {
   const { DB } = c.env;
@@ -344,6 +355,7 @@ app.post('/api/vendors/import.csv', async (c) => {
 
     if (!company_name) { skipped++; continue; }
     if (gstin && !isValidGSTIN(gstin)) { errors.push(`Row ${i+1}: invalid GSTIN`); continue; }
+    if (rec.pan && !isValidPAN(rec.pan)) { errors.push(`Row ${i+1}: invalid PAN`); continue; }
 
     try {
       const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating)
