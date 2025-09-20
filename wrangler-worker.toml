@@ -31,5 +31,5 @@ database_name = "odic-finance-staging"
 # Run: wrangler d1 create odic-finance-staging
 # Then set the returned uuid here and in wrangler.toml if used
 # Example: database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-database_id = "47d08c91-acf2-4a80-96bd-75669bb6d320"
+database_id = "7f38d5ec-ab56-48fe-9a32-7ca2b4e040ea"
 migrations_dir = "migrations"
