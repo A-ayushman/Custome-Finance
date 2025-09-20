@@ -1,0 +1,201 @@
+name: Remote Maintainer on: workflow_dispatch: inputs: task: description: 'Task to perform' required: true type: choice options: - add_pages_headers - update_ci_concurrency - custom_patch branch_name: description: 'Branch to create (e.g., chore/pages-headers)' required: true type: string pr_title: description: 'PR title' required: true type: string custom_file_path: description: '(custom_patch only) File path to write' required: false type: string custom_file_content: description: '(custom_patch only) File content' required: false type: string
+
+jobs: run: permissions: contents: write pull-requests: write runs-on: ubuntu-latest env: GH_PAT: ${{ secrets.GH_MAINTAINER_PAT }} REPO: ${{ github.repository }} steps: - name: Checkout main uses: actions/checkout@v4 with: ref: main
+
+  - name: Prepare branch
+    run: |
+      set -e
+      git config user.name "remote-maintainer-bot"
+      git config user.email "remote-maintainer@users.noreply.github.com"
+      git checkout -b "${{ inputs.branch_name }}"
+
+  - name: Apply requested changes
+    run: |
+      set -e
+      case "${{ inputs.task }}" in
+        add_pages_headers)
+          mkdir -p public
+          cat > public/_headers << 'EOF'
+/* X-Content-Type-Options: nosniff Referrer-Policy: no-referrer X-Frame-Options: DENY Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+/index.html Cache-Control: no-cache, must-revalidate
+
+/assets/* Cache-Control: public, max-age=31536000, immutable EOF ;; update_ci_concurrency) mkdir -p .github/workflows cat > .github/workflows/ci.yml << 'YAML' name: CI on: push: branches: [ main, staging ] pull_request: branches: [ main ] workflow_dispatch: concurrency: group: 
+g
+i
+t
+h
+u
+b
+.
+w
+o
+r
+k
+f
+l
+o
+w
+−
+github.workflow−{{ github.ref }} cancel-in-progress: true
+
+jobs: build-test: runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - uses: actions/setup-node@v4 with: node-version: 20 - run: npm ci - run: npm run -s test || echo "No tests yet" - run: npm run -s lint || echo "No linter configured"
+
+deploy-worker: if: github.ref == 'refs/heads/main' needs: build-test runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - uses: actions/setup-node@v4 with: node-version: 20 - run: npm ci - name: Deploy Worker (production) env: CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} run: npm run -s deploy:worker
+
+deploy-pages-prod: if: github.ref == 'refs/heads/main' needs: build-test runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - uses: actions/setup-node@v4 with: node-version: 20 - run: npm ci - name: Deploy Pages (production → odic-finance-production) env: CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} run: npx wrangler pages deploy public --project-name odic-finance-production --branch main
+
+deploy-staging-worker: if: github.ref == 'refs/heads/staging' needs: build-test runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - uses: actions/setup-node@v4 with: node-version: 20 - run: npm ci - name: Deploy Worker (staging) env: CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} run: npm run -s deploy:worker:staging
+
+deploy-staging-pages: if: github.ref == 'refs/heads/staging' needs: build-test runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - uses: actions/setup-node@v4 with: node-version: 20 - run: npm ci - name: Deploy Pages (staging → odic-finance-ui) env: CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} run: npx wrangler pages deploy public --project-name odic-finance-ui --branch staging YAML
+
+          cat > .github/workflows/docs-release.yml << 'YAML'
+name: Docs PDFs & Release on: workflow_dispatch: push: tags: - 'v*.*' concurrency: group: 
+g
+i
+t
+h
+u
+b
+.
+w
+o
+r
+k
+f
+l
+o
+w
+−
+github.workflow−{{ github.ref }} cancel-in-progress: true
+
+jobs: build-docs: runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: Install md-to-pdf toolchain run: | sudo apt-get update sudo apt-get install -y pandoc - name: Build PDFs from docs/.md run: | mkdir -p artifacts for f in docs/.md; do base="
+(
+b
+a
+s
+e
+n
+a
+m
+e
+"
+(basename"f" .md)" pandoc "
+f
+"
+−
+o
+"
+a
+r
+t
+i
+f
+a
+c
+t
+s
+/
+f"−o"artifacts/{base}.pdf" || echo "Failed to convert $f" done - name: Upload PDFs uses: actions/upload-artifact@v4 with: name: docs-pdfs path: artifacts/.pdf
+
+create-release: needs: build-docs runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: Download PDFs uses: actions/download-artifact@v4 with: name: docs-pdfs path: artifacts - name: Create GitHub Release uses: softprops/action-gh-release@v2 with: files: artifacts/*.pdf env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} YAML ;; custom_patch) if [ -z "
+i
+n
+p
+u
+t
+s
+.
+c
+u
+s
+t
+o
+m
+f
+i
+l
+e
+p
+a
+t
+h
+"
+]
+∣
+∣
+[
+−
+z
+"
+inputs.custom 
+f
+​
+ ile 
+p
+​
+ ath"]∣∣[−z"{{ inputs.custom_file_content }}" ]; then echo "custom_file_path and custom_file_content are required for custom_patch"; exit 1; fi mkdir -p "
+(
+d
+i
+r
+n
+a
+m
+e
+"
+(dirname"{{ inputs.custom_file_path }}")" printf "%s" "
+i
+n
+p
+u
+t
+s
+.
+c
+u
+s
+t
+o
+m
+f
+i
+l
+e
+c
+o
+n
+t
+e
+n
+t
+"
+>
+"
+inputs.custom 
+f
+​
+ ile 
+c
+​
+ ontent">"{{ inputs.custom_file_path }}" ;; *) echo "Unknown task"; exit 1;; esac
+
+  - name: Commit changes
+    run: |
+      git add -A
+      git commit -m "${{ inputs.pr_title }}"
+
+  - name: Push branch with PAT
+    run: |
+      git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${REPO}.git"
+      git push -u origin "${{ inputs.branch_name }}"
+
+  - name: Open PR
+    uses: peter-evans/create-pull-request@v6
+    with:
+      token: ${{ secrets.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 }}
+      branch: ${{ inputs.branch_name }}
+      title: ${{ inputs.pr_title }}
+      body: |
+        Automated PR via Remote Maintainer.
+        task: ${{ inputs.task }}
