@@ -289,7 +289,8 @@ app.get('/api/vendors/unique/gstin/:gstin', async (c) => {
   const { DB } = c.env;
   const gstin = (c.req.param('gstin') || '').trim();
   if (!gstin) return bad(c, 'gstin is required');
-  const row = await DB.prepare('SELECT 1 AS exists FROM vendors WHERE gstin = ? LIMIT 1').bind(gstin).first();
+  if (!isValidGSTIN(gstin)) return bad(c, 'Invalid GSTIN format');
+  const row = await DB.prepare('SELECT 1 AS found FROM vendors WHERE gstin = ? LIMIT 1').bind(gstin).first();
   const available = !row;
   return ok(c, { gstin, available });
 });
@@ -301,6 +302,17 @@ app.get('/api/vendors/unique/pan/:pan', async (c) => {
   if (!pan) return bad(c, 'pan is required');
   if (!isValidPAN(pan)) return bad(c, 'Invalid PAN format');
   const row = await DB.prepare('SELECT 1 AS exists FROM vendors WHERE pan = ? LIMIT 1').bind(pan).first();
+  const available = !row;
+  return ok(c, { pan, available });
+});
+
+// PAN availability endpoint
+app.get('/api/vendors/unique/pan/:pan', async (c) => {
+  const { DB } = c.env;
+  const pan = (c.req.param('pan') || '').trim();
+  if (!pan) return bad(c, 'pan is required');
+  if (!isValidPAN(pan)) return bad(c, 'Invalid PAN format');
+  const row = await DB.prepare('SELECT 1 AS found FROM vendors WHERE pan = ? LIMIT 1').bind(pan).first();
   const available = !row;
   return ok(c, { pan, available });
 });
@@ -355,6 +367,7 @@ app.post('/api/vendors/import.csv', async (c) => {
 
     if (!company_name) { skipped++; continue; }
     if (gstin && !isValidGSTIN(gstin)) { errors.push(`Row ${i+1}: invalid GSTIN`); continue; }
+    if (rec.pan && !isValidPAN(rec.pan)) { errors.push(`Row ${i+1}: invalid PAN`); continue; }
     if (rec.pan && !isValidPAN(rec.pan)) { errors.push(`Row ${i+1}: invalid PAN`); continue; }
 
     try {
