@@ -373,7 +373,7 @@ app.post('/api/vendors/import.csv', async (c) => {
     try {
       const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                               ON CONFLICT(gstin) DO UPDATE SET company_name=excluded.company_name, legal_name=excluded.legal_name, pan=excluded.pan, state=excluded.state, state_code=excluded.state_code, pin_code=excluded.pin_code, business_type=excluded.business_type, status=excluded.status, rating=excluded.rating, updated_at=CURRENT_TIMESTAMP`);
+                               ON CONFLICT(gstin) WHERE gstin IS NOT NULL DO UPDATE SET company_name=excluded.company_name, legal_name=excluded.legal_name, pan=excluded.pan, state=excluded.state, state_code=excluded.state_code, pin_code=excluded.pin_code, business_type=excluded.business_type, status=excluded.status, rating=excluded.rating, updated_at=CURRENT_TIMESTAMP`);
       const res = await stmt.bind(
         company_name,
         rec.legal_name || null,
