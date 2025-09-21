@@ -204,7 +204,7 @@ class ODICFinanceSystem {
               } else {
                 const file=document.getElementById('odic-file').files[0]; if(!file){alert('Please choose a CSV'); return;}
                 const dry=document.getElementById('odic-dryrun').checked;
-                const map={vendors:'/api/vendors/import.csv', instruments:'/api/instruments/import.csv'}; // payments/po/invoice/dc import can be added next
+                const map={vendors:'/api/vendors/import.csv', instruments:'/api/instruments/import.csv', pos:'/api/pos/import.csv', invoices:'/api/invoices/import.csv', dcs:'/api/dcs/import.csv'};
                 const url = base + (map[ds]||''); if(!url){ alert('Import not yet supported for '+ds); return; }
                 const fd=new FormData(); fd.append('file', file);
                 const res=await fetch(url, { method:'POST', headers: Object.assign({}, headers, dry?{'x-dry-run':'1'}:{}), body: fd});
