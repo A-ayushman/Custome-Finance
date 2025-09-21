@@ -1,0 +1,9 @@
+/* Floating Action Buttons (universal) */
+.fab-container { position: fixed; right: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 10000; }
+.fab { width: 56px; height: 56px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #111; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; cursor: pointer; transition: transform .12s ease, box-shadow .2s ease, background .2s ease; }
+.fab:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(0,0,0,0.28); }
+.fab--primary { background: #111; }
+.fab--accent { background: #000; }
+.fab i { font-size: 20px; }
+.fab-label { position: absolute; right: 68px; background: rgba(0,0,0,0.85); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; transform: translateX(8px); transition: opacity .12s ease, transform .12s ease; }
+.fab:hover + .fab-label, .fab:focus + .fab-label { opacity: 1; transform: translateX(0); }

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ODIC International - Vendor Management System (VMS)</title>
     <link rel="stylesheet" href="/style.css">
+        <link rel="stylesheet" href="/_fab.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <meta name="description" content="ODIC International - Vendor Management System (VMS): Complete PO, Invoice, DC & Vendor Management">
@@ -1691,6 +1692,25 @@
                             <tbody id="fiTableBody"></tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+        <!-- Universal FABs -->
+            <div class="fab-container" id="fabContainer" style="display:none">
+                <div style="position:relative">
+                    <button class="fab fab--primary" id="fabAddVendor" title="Add Vendor"><i class="fas fa-user-plus"></i></button>
+                    <span class="fab-label">Add Vendor</span>
+                </div>
+                <div style="position:relative">
+                    <button class="fab fab--primary" id="fabAddPO" title="Create PO"><i class="fas fa-file-invoice"></i></button>
+                    <span class="fab-label">Create PO</span>
+                </div>
+                <div style="position:relative">
+                    <button class="fab fab--primary" id="fabAddInvoice" title="Create Invoice"><i class="fas fa-receipt"></i></button>
+                    <span class="fab-label">Create Invoice</span>
+                </div>
+                <div style="position:relative">
+                    <button class="fab fab--primary" id="fabAddDC" title="Create DC"><i class="fas fa-truck"></i></button>
+                    <span class="fab-label">Create DC</span>
                 </div>
             </div>
         </main>

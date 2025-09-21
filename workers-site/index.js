@@ -18,7 +18,8 @@ function requireLevelAtLeast(c, min){
 // shortcut checks
 const canCreateEntries = (lvl)=> lvl>=LEVEL.L2; // L2+ can create entries (PO, vendor, invoice, DC)
 const canApprove = (lvl)=> lvl>=LEVEL.L4;       // L4/L5 approve
-const canMarkPaymentDone = (lvl)=> lvl===LEVEL.L1 || lvl===LEVEL.L5;
+// Payment mark-done: now allowed to all L1..L5 per latest directive
+const canMarkPaymentDone = (lvl)=> Number.isInteger(lvl) && lvl >= LEVEL.L1 && lvl <= LEVEL.L5;
 
 const app = new Hono();
 
@@ -575,6 +576,63 @@ app.post('/api/payments/:id/proof', async (c) => {
   return ok(c, row);
 });
 
+app.get('/api/payments', async (c) => {
+  const { DB } = c.env;
+  const url = new URL(c.req.url);
+  const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
+  const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '25', 10), 1), 100);
+  const status = (url.searchParams.get('status') || '').trim();
+  const vendor_id = url.searchParams.get('vendor_id');
+  const where = [];
+  const params = [];
+  if (status) { where.push('status = ?'); params.push(status); }
+  if (vendor_id) { where.push('vendor_id = ?'); params.push(Number(vendor_id)); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = (await DB.prepare(`SELECT COUNT(*) AS cnt FROM payments ${whereSql}`).bind(...params).first())?.cnt || 0;
+  const rows = await DB.prepare(`SELECT * FROM payments ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params, size, (page-1)*size).all();
+  return ok(c, { page, size, total, items: rows.results || [] });
+});
+
+app.get('/api/payments/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id');
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  if (!row) return bad(c, 'Not found', 404);
+  return ok(c, row);
+});
+
+app.post('/api/payments', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const b = await c.req.json().catch(()=>({}));
+  const vendor_id = b.vendor_id ? Number(b.vendor_id) : null;
+  const amount = b.amount ? Number(b.amount) : 0;
+  const invoice_ref = (b.invoice_ref||'').toString();
+  const status = (b.status||'pending').toString();
+  await c.env.DB.prepare('INSERT INTO payments (vendor_id, invoice_ref, amount, status, created_by_level) VALUES (?,?,?,?,?)').bind(vendor_id, toDb(invoice_ref), amount, status, lvl).run();
+  const row = await c.env.DB.prepare('SELECT * FROM payments ORDER BY id DESC LIMIT 1').first();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'create','payment',row?.id||null, JSON.stringify({vendor_id, amount})).run(); } catch(_){ }
+  return ok(c, row);
+});
+
+app.put('/api/payments/:id', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id');
+  const b = await c.req.json().catch(()=>({}));
+  const fields = [];
+  const params = [];
+  for (const k of ['vendor_id','invoice_ref','amount','status','proof_url']) {
+    if (k in b) { fields.push(`${k} = ?`); params.push(b[k]); }
+  }
+  if (!fields.length) return bad(c, 'No updatable fields provided');
+  params.push(id);
+  await c.env.DB.prepare(`UPDATE payments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run();
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  return ok(c, row);
+});
+
 app.post('/api/payments/:id/mark-done', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canMarkPaymentDone(lvl)) return bad(c,'forbidden',403);
@@ -584,6 +642,255 @@ app.post('/api/payments/:id/mark-done', async (c) => {
   try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id) VALUES (?,?,?,?)').bind(lvl,'mark_done','payment',id).run(); } catch(_){ }
   const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
   return ok(c, row);
+});
+
+// Instrument Types
+app.get('/api/instrument-types', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT id, name, created_at FROM instrument_types ORDER BY name').all();
+  return ok(c, rows.results || []);
+});
+app.post('/api/instrument-types', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const b = await c.req.json().catch(()=>({}));
+  const name = (b.name||'').toString().trim();
+  if (!name) return bad(c, 'name is required');
+  try {
+    await c.env.DB.prepare('INSERT INTO instrument_types (name) VALUES (?)').bind(name).run();
+    const row = await c.env.DB.prepare('SELECT id, name, created_at FROM instrument_types WHERE name = ?').bind(name).first();
+    return ok(c, row);
+  } catch(e) {
+    if ((e.message||'').includes('UNIQUE')) return bad(c,'name exists',409);
+    return bad(c, 'Failed to create');
+  }
+});
+
+// Financial Instruments
+const INSTR_STATUSES = new Set(['pending','active','approved','rejected','expired']);
+app.get('/api/instruments', async (c) => {
+  const { DB } = c.env;
+  const url = new URL(c.req.url);
+  const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
+  const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '25', 10), 1), 100);
+  const search = (url.searchParams.get('search')||'').trim();
+  const status = (url.searchParams.get('status')||'').trim();
+  const type_id = url.searchParams.get('type_id');
+  const where = [];
+  const params = [];
+  if (search) { where.push('(title LIKE ? OR reference_no LIKE ?)'); params.push(`%${search}%`,`%${search}%`); }
+  if (status) { where.push('status = ?'); params.push(status); }
+  if (type_id) { where.push('type_id = ?'); params.push(Number(type_id)); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = (await DB.prepare(`SELECT COUNT(*) AS cnt FROM financial_instruments ${whereSql}`).bind(...params).first())?.cnt || 0;
+  const rows = await DB.prepare(`SELECT * FROM financial_instruments ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params, size, (page-1)*size).all();
+  return ok(c, { page, size, total, items: rows.results || [] });
+});
+app.get('/api/instruments/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c,'Invalid id');
+  const row = await c.env.DB.prepare('SELECT * FROM financial_instruments WHERE id = ?').bind(id).first();
+  if (!row) return bad(c,'Not found',404);
+  return ok(c, row);
+});
+function parseDetailsByType(name, body) {
+  // Normalize per instrument type with forward-compat JSON shape
+  switch ((name||'').toLowerCase()) {
+    case 'bank guarantee':
+      return {
+        bank_name: body.bank_name || null,
+        bg_number: body.bg_number || null,
+        beneficiary: body.beneficiary || null,
+        margin_percent: body.margin_percent == null ? null : Number(body.margin_percent),
+        claimable_until: body.claimable_until || null
+      };
+    case 'letter of credit':
+      return {
+        issuing_bank: body.issuing_bank || null,
+        advising_bank: body.advising_bank || null,
+        lc_number: body.lc_number || null,
+        shipment_terms: body.shipment_terms || null,
+        expiry_date: body.expiry_date || null,
+      };
+    case 'rtgs':
+    case 'neft':
+    case 'upi_b2b':
+      return {
+        utr: body.utr || null,
+        txn_date: body.txn_date || null,
+        payer_bank: body.payer_bank || null,
+        payee_bank: body.payee_bank || null,
+        channel: (name||'').toUpperCase()
+      };
+    case 'e-kuber':
+    case 'pfms':
+      return {
+        pfms_id: body.pfms_id || null,
+        sanction_no: body.sanction_no || null,
+        scheme: body.scheme || null,
+        fund_source: body.fund_source || null
+      };
+    case 'gem payment':
+      return {
+        gem_order_no: body.gem_order_no || null,
+        gem_invoice_no: body.gem_invoice_no || null,
+        gem_seller_id: body.gem_seller_id || null,
+      };
+    case 'digital signature':
+      return {
+        signer_id: body.signer_id || null,
+        dsc_serial: body.dsc_serial || null,
+        signed_at: body.signed_at || null,
+        audit_trail_url: body.audit_trail_url || null,
+      };
+    default:
+      return {};
+  }
+}
+
+app.post('/api/instruments', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const b = await c.req.json().catch(()=>({}));
+  const type_id = b.type_id ? Number(b.type_id) : null; const type_name = (b.type_name||'').toString();
+  const title = (b.title||'').toString().trim();
+  if (!title) return bad(c, 'title is required');
+  const reference_no = (b.reference_no||'').toString();
+  const vendor_id = b.vendor_id ? Number(b.vendor_id) : null;
+  const amount = b.amount ? Number(b.amount) : 0;
+  const currency = (b.currency||'INR').toString();
+  const status = INSTR_STATUSES.has((b.status||'pending').toString()) ? (b.status||'pending').toString() : 'pending';
+  const issue_date = b.issue_date || null;
+  const expiry_date = b.expiry_date || null;
+  const document_url = b.document_url || null;
+  const notes = b.notes || null;
+  const details = parseDetailsByType(type_name, b);
+  const bg_number = details.bg_number || null;
+  const lc_number = details.lc_number || null;
+  const utr = details.utr || null;
+  const pfms_id = details.pfms_id || null;
+  const gem_order_no = details.gem_order_no || null;
+  const signer_id = details.signer_id || null;
+  await c.env.DB.prepare('INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id,created_by_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(toDb(type_id), toDb(title), toDb(reference_no), toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), JSON.stringify(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id), lvl).run();
+  const row = await c.env.DB.prepare('SELECT * FROM financial_instruments ORDER BY id DESC LIMIT 1').first();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'create','financial_instrument',row?.id||null, JSON.stringify({title,amount})).run(); } catch(_){ }
+  return ok(c, row);
+});
+app.put('/api/instruments/:id', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c,'Invalid id');
+  const b = await c.req.json().catch(()=>({}));
+  const fields = [];
+  const params = [];
+  for (const k of ['type_id','title','reference_no','vendor_id','amount','currency','status','issue_date','expiry_date','document_url','notes','details','bg_number','lc_number','utr','pfms_id','gem_order_no','signer_id']) {
+    if (k in b) { fields.push(`${k} = ?`); params.push(b[k]); }
+  }
+  if (!fields.length) return bad(c, 'No updatable fields provided');
+  params.push(id);
+  await c.env.DB.prepare(`UPDATE financial_instruments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run();
+  const row = await c.env.DB.prepare('SELECT * FROM financial_instruments WHERE id = ?').bind(id).first();
+  return ok(c, row);
+});
+
+// Instruments CSV export/import
+app.get('/api/instruments/export.csv', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT id,type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,created_at FROM financial_instruments ORDER BY created_at DESC').all();
+  const items = rows.results || [];
+  const header = ['id','type_id','title','reference_no','vendor_id','amount','currency','status','issue_date','expiry_date','document_url','created_at'];
+  const esc = (v) => v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v));
+  const csv = [header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n');
+  const today = new Date().toISOString().slice(0,10);
+  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="instruments_${today}.csv"` }});
+});
+
+// Payments CSV export
+app.get('/api/payments/export.csv', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT id,vendor_id,invoice_ref,amount,status,proof_url,created_at FROM payments ORDER BY created_at DESC').all();
+  const items = rows.results || [];
+  const header = ['id','vendor_id','invoice_ref','amount','status','proof_url','created_at'];
+  const esc = (v) => v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v));
+  const csv = [header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n');
+  const today = new Date().toISOString().slice(0,10);
+  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="payments_${today}.csv"` }});
+});
+
+// Purchase Orders (PO)
+const PO_STATUSES = new Set(['pending','approved','rejected']);
+app.get('/api/pos', async (c) => {
+  const DB = c.env.DB; const url = new URL(c.req.url);
+  const page = Math.max(parseInt(url.searchParams.get('page')||'1',10),1);
+  const size = Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100);
+  const status = (url.searchParams.get('status')||'').trim(); const vendor_id = url.searchParams.get('vendor_id');
+  const where=[], params=[]; if (status){where.push('status=?'); params.push(status);} if (vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));}
+  const whereSql = where.length?`WHERE ${where.join(' AND ')}`:'';
+  const total = (await DB.prepare(`SELECT COUNT(*) AS c FROM purchase_orders ${whereSql}`).bind(...params).first())?.c||0;
+  const rows = await DB.prepare(`SELECT * FROM purchase_orders ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all();
+  return ok(c,{page,size,total,items:rows.results||[]});
+});
+app.get('/api/pos/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.post('/api/pos', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const po_number=(b.po_number||'').toString().trim(); if(!po_number) return bad(c,'po_number required'); const items=b.items==null?null:JSON.stringify(b.items); const amount=b.amount?Number(b.amount):0; const status=PO_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; await c.env.DB.prepare('INSERT INTO purchase_orders (vendor_id,po_number,items,amount,status,created_by_level) VALUES (?,?,?,?,?,?)').bind(toDb(vendor_id),po_number,items,amount,status,lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE po_number = ?').bind(po_number).first(); return ok(c,row); });
+app.put('/api/pos/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','po_number','items','amount','status']){ if(k in b){ let v=b[k]; if(k==='items') v = (v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE purchase_orders SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.get('/api/pos/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,po_number,amount,status,created_at FROM purchase_orders ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','po_number','amount','status','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="pos_${today}.csv"`}}); });
+
+// Invoices
+const INV_STATUSES = new Set(['pending','approved','rejected','paid']);
+app.get('/api/invoices', async (c)=>{ const DB=c.env.DB; const url=new URL(c.req.url); const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1); const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100); const status=(url.searchParams.get('status')||'').trim(); const vendor_id=url.searchParams.get('vendor_id'); const where=[],params=[]; if(status){where.push('status=?'); params.push(status);} if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));} const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM invoices ${whereSql}`).bind(...params).first())?.c||0; const rows=await DB.prepare(`SELECT * FROM invoices ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); return ok(c,{page,size,total,items:rows.results||[]}); });
+app.get('/api/invoices/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.post('/api/invoices', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const invoice_number=(b.invoice_number||'').toString().trim(); if(!invoice_number) return bad(c,'invoice_number required'); const amount=b.amount?Number(b.amount):0; const status=INV_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; const due_date=b.due_date||null; await c.env.DB.prepare('INSERT INTO invoices (vendor_id,invoice_number,amount,status,due_date,created_by_level) VALUES (?,?,?,?,?,?)').bind(toDb(vendor_id),invoice_number,amount,status,toDb(due_date),lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE invoice_number = ?').bind(invoice_number).first(); return ok(c,row); });
+app.put('/api/invoices/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','invoice_number','amount','status','due_date']){ if(k in b){ params.push(b[k]); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE invoices SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.get('/api/invoices/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,invoice_number,amount,status,due_date,created_at FROM invoices ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','invoice_number','amount','status','due_date','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="invoices_${today}.csv"`}}); });
+
+// Delivery Challans (DC)
+const DC_STATUSES = new Set(['pending','approved','rejected','delivered']);
+app.get('/api/dcs', async (c)=>{ const DB=c.env.DB; const url=new URL(c.req.url); const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1); const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100); const status=(url.searchParams.get('status')||'').trim(); const vendor_id=url.searchParams.get('vendor_id'); const where=[],params=[]; if(status){where.push('status=?'); params.push(status);} if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));} const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM delivery_challans ${whereSql}`).bind(...params).first())?.c||0; const rows=await DB.prepare(`SELECT * FROM delivery_challans ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); return ok(c,{page,size,total,items:rows.results||[]}); });
+app.get('/api/dcs/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.post('/api/dcs', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const dc_number=(b.dc_number||'').toString().trim(); if(!dc_number) return bad(c,'dc_number required'); const items=b.items==null?null:JSON.stringify(b.items); const status=DC_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; await c.env.DB.prepare('INSERT INTO delivery_challans (vendor_id,dc_number,items,status,created_by_level) VALUES (?,?,?,?,?)').bind(toDb(vendor_id),dc_number,items,status,lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE dc_number = ?').bind(dc_number).first(); return ok(c,row); });
+app.put('/api/dcs/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','dc_number','items','status']){ if(k in b){ let v=b[k]; if(k==='items') v=(v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE delivery_challans SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.get('/api/dcs/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,dc_number,status,created_at FROM delivery_challans ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','dc_number','status','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="dcs_${today}.csv"`}}); });
+
+});
+app.post('/api/instruments/import.csv', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const ct = c.req.header('Content-Type')||'';
+  let text='';
+  if (ct.includes('multipart/form-data')) { const fd=await c.req.formData(); const f=fd.get('file'); if(!f) return bad(c,'file required'); text=await f.text(); } else { text=await c.req.text(); }
+  if (!text) return bad(c,'Empty CSV');
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+  if (lines.length<=1) return bad(c,'CSV must include header and at least one row');
+  const header = lines[0].split(',').map(h=>h.trim());
+  const idx=(n)=>header.indexOf(n);
+  const req=['title']; for (const r of req) if (idx(r)===-1) return bad(c,`Missing required column: ${r}`);
+  let inserted=0, updated=0, skipped=0, errors=[];
+  for (let i=1;i<lines.length;i++){
+    const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
+    const rec = Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
+    const title=(rec.title||'').trim(); if(!title){skipped++; continue;}
+    try{
+      const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ? AND reference_no IS NOT NULL').bind(rec.reference_no||null).first();
+      if (exists) {
+        await c.env.DB.prepare('UPDATE financial_instruments SET title = ?, amount = ?, status = ?, updated_at=CURRENT_TIMESTAMP WHERE id = ?').bind(title, Number(rec.amount||0), (rec.status||'pending'), exists.id).run();
+        updated++;
+      } else {
+        await c.env.DB.prepare('INSERT INTO financial_instruments (title, reference_no, amount, status) VALUES (?,?,?,?)').bind(title, rec.reference_no||null, Number(rec.amount||0), (rec.status||'pending')).run();
+        inserted++;
+      }
+    }catch(e){errors.push(`Row ${i+1}: ${e.message||e}`)}
+  }
+  return ok(c,{inserted,updated,skipped,errors});
+});
+
+// Reports
+app.get('/api/reports/summary', async (c) => {
+  const DB=c.env.DB;
+  const vendor_count = (await DB.prepare('SELECT COUNT(*) AS c FROM vendors').first())?.c||0;
+  const vendor_pending = (await DB.prepare("SELECT COUNT(*) AS c FROM vendors WHERE status='pending'").first())?.c||0;
+  const payments_pending = (await DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE status='pending'").first())?.c||0;
+  const payments_done = (await DB.prepare("SELECT COUNT(*) AS c FROM payments WHERE status='done'").first())?.c||0;
+  const instruments_active = (await DB.prepare("SELECT COUNT(*) AS c FROM financial_instruments WHERE status='active'").first())?.c||0;
+  return ok(c,{vendor_count,vendor_pending,payments_pending,payments_done,instruments_active});
 });
 
 export default app;

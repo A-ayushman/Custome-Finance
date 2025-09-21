@@ -1,6 +1,6 @@
 /**
- * ODIC Finance System - Production Ready Application v2.1.1
- * Enterprise Finance Management Platform - Complete JavaScript Implementation
+ * ODIC International - Vendor Management System (VMS) - Production Ready Application v2.1.1
+ * Vendor Management System - Complete JavaScript Implementation
  * Build: 2025.09.18 - FIXED VERSION
  * 
  * Critical Bug Fixes:
@@ -121,6 +121,48 @@ class ODICFinanceSystem {
             L5: ['all_permissions', 'role_manage', 'system_settings', 'export_all', 'user_management', 'security_settings', 'audit_access']
         };
 
+        setupDataMenu(){
+            // Ensure nav has a Data section with Import/Export generic entries
+            const sidebar=document.getElementById('sidebar');
+            if (!sidebar) return;
+            let dataHeader = document.getElementById('dataSectionHeader');
+            if (!dataHeader) {
+                const nav = sidebar.querySelector('.sidebar-nav');
+                if (nav) {
+                    const h = document.createElement('div');
+                    h.id = 'dataSectionHeader';
+                    h.className = 'sidebar-section';
+                    h.innerHTML = '<h4>Data</h4>';
+                    nav.appendChild(h);
+                    const imp = document.createElement('a');
+                    imp.href = '#'; imp.className='nav-item'; imp.innerHTML = '<i class="fas fa-upload"></i><span>Import</span>'; imp.addEventListener('click', ()=> this.openImportModal());
+                    const exp = document.createElement('a');
+                    exp.href = '#'; exp.className='nav-item'; exp.innerHTML = '<i class="fas fa-download"></i><span>Export</span>'; exp.addEventListener('click', ()=> this.openExportModal());
+                    nav.appendChild(imp); nav.appendChild(exp);
+                }
+            }
+        }
+
+        openImportModal(){ alert('Open Import dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
+        openExportModal(){ alert('Open Export dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
+
+        // Role-based visibility
+        applyRoleVisibility() {
+            // Upload proof button visibility decision: L1/L5 only
+            // Actual buttons will be rendered in Payments UI next; we’ll hide them for others
+
+            const user = this.getSavedData('odicCurrentUser');
+            const role = (user && user.role) || document.getElementById('roleSelect')?.value || '';
+            const fab = document.getElementById('fabContainer');
+            const settingsNav = document.querySelector('[data-screen="settings"]');
+            const creationAllowed = ['L2','L3','L4','L5'].includes(role);
+            const approvalsAllowed = ['L4','L5'].includes(role);
+            const systemAllowed = ['L4','L5'].includes(role);
+            if (fab) fab.style.display = creationAllowed ? 'flex' : 'none';
+            if (settingsNav) settingsNav.style.display = systemAllowed ? '' : 'none';
+            // Approve buttons will be handled contextually where needed
+        }
+
         // Application state management
         this.state = {
             isLoading: false,
@@ -148,13 +190,14 @@ class ODICFinanceSystem {
      * Initialize the complete application
      */
     init() {
-        console.log(`🚀 ODIC Finance System v${this.version} initializing... [${this.buildNumber}]`);
+        console.log(`🚀 ODIC International VMS v${this.version} initializing... [${this.buildNumber}]`);
         console.log(`📦 Build: ${this.buildNumber} - FIXED VERSION`);
-        console.log(`🏢 Enterprise Edition - Production Ready`);
+        console.log(`🧭 Vendor Management System (VMS) - Production Ready`);
         
         // Start with loading screen visible
         setTimeout(() => {
             this.setupEventListeners();
+                this.setupFabs();
             this.loadSavedState();
             this.setupOfflineDetection();
             this.setupServiceWorkerUpdates();
@@ -306,6 +349,43 @@ class ODICFinanceSystem {
     generatePurchaseOrders() { return []; }
     generateInvoices() { return []; }
     generatePayments() { return []; }
+
+        setupFabs() {
+            const c = document.getElementById('fabContainer');
+            if (!c) return;
+            const addVendor = document.getElementById('fabAddVendor');
+            const addPO = document.getElementById('fabAddPO');
+            const addInvoice = document.getElementById('fabAddInvoice');
+            const addDC = document.getElementById('fabAddDC');
+            const base = (window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const levelHeader = ()=> ({ 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) });
+            const toJSONHeaders = (extra={})=> Object.assign({ 'Content-Type':'application/json' }, extra, levelHeader());
+
+            if (addVendor) addVendor.addEventListener('click', async ()=>{
+                const company_name = prompt('Company Name');
+                if (!company_name) return;
+                try { const r=await fetch(base+'/api/vendors',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ company_name, status:'pending' })}); const j=await r.json(); alert(j.success?'Vendor created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addPO) addPO.addEventListener('click', async ()=>{
+                const po_number = prompt('PO Number'); if(!po_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                const amount = Number(prompt('Amount')||'0')||0;
+                try { const r=await fetch(base+'/api/pos',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ po_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'PO created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addInvoice) addInvoice.addEventListener('click', async ()=>{
+                const invoice_number = prompt('Invoice Number'); if(!invoice_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                const amount = Number(prompt('Amount')||'0')||0;
+                try { const r=await fetch(base+'/api/invoices',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ invoice_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'Invoice created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addDC) addDC.addEventListener('click', async ()=>{
+                const dc_number = prompt('DC Number'); if(!dc_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                try { const r=await fetch(base+'/api/dcs',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ dc_number, vendor_id, status:'pending' })}); const j=await r.json(); alert(j.success?'DC created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+        }
+
+        roleToLevel(r){ return {L1:1,L2:2,L3:3,L4:4,L5:5}[r]||0; }
     generateFinancialInstruments() {
         // Seed with one sample record for demo/list rendering
         return [
@@ -410,6 +490,11 @@ class ODICFinanceSystem {
      * Setup comprehensive event listeners - FIXED VERSION
      */
     setupEventListeners() {
+            const fab = document.getElementById('fabContainer');
+            const roleSel = document.getElementById('roleSelect');
+            if (roleSel) {
+                roleSel.addEventListener('change', ()=> this.applyRoleVisibility());
+            }
         this.setupLoginHandlers();
         this.setupNavigationHandlers();
         this.setupThemeHandlers();
@@ -693,6 +778,8 @@ class ODICFinanceSystem {
      * Show main application interface - FIXED
      */
     showMainApp() {
+            this.applyRoleVisibility();
+                this.setupDataMenu();
         console.log('🎯 Showing main application interface...');
         
         const loginScreen = document.getElementById('loginScreen');
