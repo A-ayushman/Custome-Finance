@@ -943,23 +943,84 @@ app.post('/api/instruments/import.csv', async (c) => {
   const header = lines[0].split(',').map(h=>h.trim());
   const idx=(n)=>header.indexOf(n);
   const req=['title']; for (const r of req) if (idx(r)===-1) return bad(c,`Missing required column: ${r}`);
+
+  const dryRun = c.req.header('x-dry-run') === '1';
   let inserted=0, updated=0, skipped=0, errors=[];
+
+  // cache type name -> id
+  const typeCache = new Map();
+  async function resolveTypeId(name){
+    if (!name) return null;
+    const key = String(name).toLowerCase();
+    if (typeCache.has(key)) return typeCache.get(key);
+    const row = await c.env.DB.prepare('SELECT id FROM instrument_types WHERE lower(name) = lower(?) LIMIT 1').bind(name).first();
+    const id = row?.id || null;
+    typeCache.set(key,id);
+    return id;
+  }
+  const INSTR_ALLOWED = new Set(['pending','active','approved','rejected','expired']);
+
   for (let i=1;i<lines.length;i++){
     const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
     const rec = Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
-    const title=(rec.title||'').trim(); if(!title){skipped++; continue;}
+
+    const title=(rec.title||'').trim();
+    if(!title){skipped++; continue;}
+
+    const type_name = (rec.type_name||'').toString();
+    const type_id = await resolveTypeId(type_name);
+    const reference_no = (rec.reference_no||'').toString().trim() || null;
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
+    const amount = rec.amount? Number(rec.amount) : 0;
+    const currency = (rec.currency||'INR').toString();
+    const statusRaw = (rec.status||'pending').toString();
+    const status = INSTR_ALLOWED.has(statusRaw) ? statusRaw : 'pending';
+    const issue_date = rec.issue_date || null;
+    const expiry_date = rec.expiry_date || null;
+    const document_url = rec.document_url || null;
+    const notes = rec.notes || null;
+
+    const detailsObj = parseDetailsByType(type_name, rec) || {};
+    const bg_number = detailsObj.bg_number || null;
+    const lc_number = detailsObj.lc_number || null;
+    const utr = detailsObj.utr || null;
+    const pfms_id = detailsObj.pfms_id || null;
+    const gem_order_no = detailsObj.gem_order_no || null;
+    const signer_id = detailsObj.signer_id || null;
+    const hasDetails = Object.values(detailsObj).some(v => v !== undefined && v !== null && String(v).length>0);
+    const details = hasDetails ? JSON.stringify(detailsObj) : null;
+
     try{
-      const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ? AND reference_no IS NOT NULL').bind(rec.reference_no||null).first();
-      if (exists) {
-        await c.env.DB.prepare('UPDATE financial_instruments SET title = ?, amount = ?, status = ?, updated_at=CURRENT_TIMESTAMP WHERE id = ?').bind(title, Number(rec.amount||0), (rec.status||'pending'), exists.id).run();
-        updated++;
+      if (dryRun) {
+        if (reference_no) {
+          const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ?').bind(reference_no).first();
+          if (exists) updated++; else inserted++;
+        } else {
+          inserted++;
+        }
+        continue;
+      }
+      if (reference_no) {
+        const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ?').bind(reference_no).first();
+        const sql = `INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(reference_no) DO UPDATE SET type_id=excluded.type_id, title=excluded.title, vendor_id=excluded.vendor_id, amount=excluded.amount, currency=excluded.currency, status=excluded.status, issue_date=excluded.issue_date, expiry_date=excluded.expiry_date, document_url=excluded.document_url, notes=excluded.notes, details=excluded.details, bg_number=excluded.bg_number, lc_number=excluded.lc_number, utr=excluded.utr, pfms_id=excluded.pfms_id, gem_order_no=excluded.gem_order_no, signer_id=excluded.signer_id, updated_at=CURRENT_TIMESTAMP`;
+        await c.env.DB.prepare(sql).bind(
+          toDb(type_id), toDb(title), toDb(reference_no), toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), toDb(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id)
+        ).run();
+        if (exists) updated++; else inserted++;
       } else {
-        await c.env.DB.prepare('INSERT INTO financial_instruments (title, reference_no, amount, status) VALUES (?,?,?,?)').bind(title, rec.reference_no||null, Number(rec.amount||0), (rec.status||'pending')).run();
+        await c.env.DB.prepare('INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id,created_by_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(toDb(type_id), toDb(title), null, toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), toDb(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id), lvl)
+          .run();
         inserted++;
       }
-    }catch(e){errors.push(`Row ${i+1}: ${e.message||e}`)}
+    }catch(e){
+      errors.push(`Row ${i+1}: ${e.message||e}`);
+    }
   }
-  return ok(c,{inserted,updated,skipped,errors});
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dryRun?'import_dry_run':'import','instruments_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c,{dryRun, inserted, updated, skipped, errors});
 });
 
 // Reports
