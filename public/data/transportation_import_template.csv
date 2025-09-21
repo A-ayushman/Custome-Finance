@@ -1,0 +1,3 @@
+shipment_id,mode,carrier,vehicle_no,driver_name,origin,destination,eway_bill_no,eway_valid_till,dispatch_date,expected_delivery
+T-0001,Courier,BlueDart,,,'Noida, UP','Mumbai, MH',,,'2025-10-01','2025-10-04'
+T-0002,OwnFleet,,UP16AB1234,'Ramesh Kumar','Noida, UP','Lucknow, UP','12-3456-7890','2025-10-05','2025-10-02','2025-10-03'
