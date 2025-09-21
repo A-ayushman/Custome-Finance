@@ -22,22 +22,44 @@ const canMarkPaymentDone = (lvl)=> lvl===LEVEL.L1 || lvl===LEVEL.L5;
 
 const app = new Hono();
 
-// In production, lock CORS to your Pages domain(s)
-const ALLOWED_ORIGINS = [
+// In production, lock CORS to your Pages domain(s) with dynamic allowlist via settings
+const ALLOWED_ORIGINS_BASE = [
   'https://odic-finance-ui.pages.dev',
   'https://dashboard.odicinternational.com',
   'https://api.odicinternational.com',
-  // Add staging domains if used
   'https://dashboard-staging.odicinternational.com',
   'https://api-staging.odicinternational.com',
 ];
+let __allowedOrigins = ALLOWED_ORIGINS_BASE.slice();
+let __ao_expiry = 0;
+async function refreshAllowedOrigins(c) {
+  const now = Date.now();
+  if (now < __ao_expiry) return __allowedOrigins;
+  __ao_expiry = now + 5 * 60 * 1000; // 5 minutes cache
+  try {
+    const row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('allowed_origins').first();
+    const canon = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('canonical_domain').first();
+    const extras = [];
+    if (canon?.value) {
+      try { const v = JSON.parse(canon.value); if (v) extras.push(String(v)); } catch { extras.push(String(canon.value)); }
+    }
+    if (row?.value) {
+      try { const vals = JSON.parse(row.value); if (Array.isArray(vals)) extras.push(...vals); }
+      catch { extras.push(String(row.value)); }
+    }
+    const set = new Set(ALLOWED_ORIGINS_BASE.concat(extras.filter(Boolean)));
+    __allowedOrigins = Array.from(set);
+  } catch (_) { /* keep previous */ }
+  return __allowedOrigins;
+}
 // Strict CORS gate for browsers: block disallowed origins early
 app.use('/*', async (c, next) => {
   const origin = c.req.header('Origin');
   if (origin) {
     try {
       const o = new URL(origin).origin;
-      if (!ALLOWED_ORIGINS.includes(o)) {
+      const list = await refreshAllowedOrigins(c);
+      if (!list.includes(o)) {
         return bad(c, 'CORS not allowed for this origin', 403);
       }
     } catch {
@@ -52,7 +74,7 @@ app.use('/*', cors({
     if (!origin) return '*';
     try {
       const o = new URL(origin).origin;
-      return ALLOWED_ORIGINS.includes(o) ? o : '';
+      return __allowedOrigins.includes(o) ? o : '';
     } catch {
       return '';
     }
@@ -118,10 +140,10 @@ const isValidGSTIN = (s) => typeof s === 'string' && GSTIN_REGEX.test(s.trim());
 const isValidPAN = (s) => typeof s === 'string' && PAN_REGEX.test(s.trim());
 
 // Root route for basic API check
-app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
+app.get('/', (c) => c.text('Welcome to ODIC International API'));
 
 // Health check API
-app.get('/api/health', (c) => ok(c, { status: 'healthy', version: '2.1.0', timestamp: new Date().toISOString() }));
+app.get('/api/health', (c) => ok(c, { status: 'healthy', version: '2.2.0', timestamp: new Date().toISOString() }));
 
 // Vendors endpoints (Phase 1)
 app.get('/api/vendors', async (c) => {
@@ -536,6 +558,32 @@ app.delete('/api/roles/:id', async (c) => {
   if ((u?.cnt || 0) > 0) return bad(c, 'Role is in use by users; reassign users before deletion', 409);
   await DB.prepare('DELETE FROM roles WHERE id = ?').bind(id).run();
   return ok(c, { deleted: true });
+});
+
+// Payments endpoints
+app.post('/api/payments/:id/proof', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!(lvl === LEVEL.L1 || lvl === LEVEL.L5)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id', 400);
+  const body = await c.req.json().catch(() => ({}));
+  const proof_url = (body.proof_url || '').toString().trim();
+  if (!proof_url) return bad(c, 'proof_url is required');
+  await c.env.DB.prepare('UPDATE payments SET proof_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(proof_url, id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'upload_proof','payment',id, JSON.stringify({proof_url})).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  return ok(c, row);
+});
+
+app.post('/api/payments/:id/mark-done', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canMarkPaymentDone(lvl)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id', 400);
+  await c.env.DB.prepare('UPDATE payments SET status = "done", marked_done_by_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(lvl, id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id) VALUES (?,?,?,?)').bind(lvl,'mark_done','payment',id).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  return ok(c, row);
 });
 
 export default app;
