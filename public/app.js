@@ -186,12 +186,24 @@ class ODICFinanceSystem {
             const action=m.querySelector('#odic-action');
 
             const buildImport=()=>{
-              area.innerHTML = '<div class="odic-field"><label>CSV File</label><input type="file" id="odic-file" accept=".csv" class="odic-input" /></div><label class="odic-field"><input type="checkbox" id="odic-dryrun" /> Dry-run (validate only)</label>';
+              area.innerHTML = '<div class="odic-field"><label>CSV File</label><input type="file" id="odic-file" accept=".csv" class="odic-input" /></div><div class="odic-help">Download template: <a id="odic-template-link" href="#" target="_blank" rel="noopener">Select a dataset</a></div><label class="odic-field"><input type="checkbox" id="odic-dryrun" /> Dry-run (validate only)</label>';
             };
             const buildExport=()=>{
               area.innerHTML = '<div class="odic-help">Click Export to download the CSV for the selected dataset.</div>';
             };
             (mode==='Import'?buildImport:buildExport)();
+
+            // Template download link mapping and updater
+            const templateMap = { pos: '/data/po_import_template.csv', invoices: '/data/invoice_import_template.csv', dcs: '/data/dc_import_template.csv' };
+            const updateTemplateLink = () => {
+              const ds = select.value;
+              const a = m.querySelector('#odic-template-link');
+              if (!a) return;
+              const href = templateMap[ds];
+              if (href) { a.href = href; a.textContent = 'Download template'; a.style.display = ''; }
+              else { a.removeAttribute('href'); a.textContent = 'No template available'; a.style.display='none'; }
+            };
+            if (mode === 'Import') { updateTemplateLink(); select.addEventListener('change', updateTemplateLink); }
 
             action.onclick = async ()=>{
               const ds = select.value;
