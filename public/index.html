@@ -44,26 +44,38 @@
 
     <!-- Enhanced Login Screen -->
     <div id="loginScreen" class="screen active">
+            <div class="bg-orbs" aria-hidden="true">
+                <span class="orb o1"></span>
+                <span class="orb o2"></span>
+                <span class="orb o3"></span>
+                <span class="orb o4"></span>
+            </div>
         <div class="login-container">
             <div class="login-header">
-                <div class="login-logo">
+                <div class="login-logo" aria-hidden="true">
                     <i class="fas fa-building"></i>
                 </div>
                 <h1>ODIC International</h1>
                 <p>Vendor Management System (VMS)</p>
-                <div class="system-info">
-                    <span>v2.1.1</span>
-                    <span>•</span>
-                    <span>Production Ready</span>
-                    <span>•</span>
-                    <span>Enterprise Edition</span>
-                </div>
-                <div class="login-features">
-                    <span><i class="fas fa-shield-alt"></i> Secure</span>
-                    <span><i class="fas fa-mobile-alt"></i> Mobile Ready</span>
-                    <span><i class="fas fa-chart-line"></i> Analytics</span>
-                    <span><i class="fas fa-cloud"></i> Cloud Native</span>
-                </div>
+                <details class="login-extras" role="group">
+                    <summary class="info-summary" aria-label="About ODIC VMS">
+                        <i class="fas fa-circle-info"></i>
+                        <span>About</span>
+                    </summary>
+                    <div class="system-info">
+                        <span>v2.1.1</span>
+                        <span>•</span>
+                        <span>Production Ready</span>
+                        <span>•</span>
+                        <span>Enterprise Edition</span>
+                    </div>
+                    <div class="login-features">
+                        <span><i class="fas fa-shield-alt"></i> Secure</span>
+                        <span><i class="fas fa-mobile-alt"></i> Mobile Ready</span>
+                        <span><i class="fas fa-chart-line"></i> Analytics</span>
+                        <span><i class="fas fa-cloud"></i> Cloud Native</span>
+                    </div>
+                </details>
             </div>
             
             <div class="login-form">
