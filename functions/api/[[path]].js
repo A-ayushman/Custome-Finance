@@ -23,9 +23,14 @@ export async function onRequest(context) {
 
     const isVendorsEndpoint = /^vendors(\b|\/)/.test(pathAfterApi);
     const isRolesEndpoint = /^roles(\b|\/)/.test(pathAfterApi);
+    const isPaymentsEndpoint = /^payments(\b|\/)/.test(pathAfterApi);
+    const isInstrumentsEndpoint = /^instruments(\b|\/)/.test(pathAfterApi);
+    const isPOEndpoint = /^(pos|purchase_orders?)(\b|\/)/.test(pathAfterApi);
+    const isInvoicesEndpoint = /^invoices(\b|\/)/.test(pathAfterApi);
+    const isDCEndpoint = /^(dcs|delivery_challans?)(\b|\/)/.test(pathAfterApi);
     const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 
-    if (isMutating && (isVendorsEndpoint || isRolesEndpoint)) {
+    if (isMutating && (isVendorsEndpoint || isRolesEndpoint || isPaymentsEndpoint || isInstrumentsEndpoint || isPOEndpoint || isInvoicesEndpoint || isDCEndpoint)) {
       try {
         if (contentType.indexOf('multipart/form-data') !== -1) {
           const fd = await request.formData();
