@@ -393,5 +393,76 @@ app.post('/api/vendors/import.csv', async (c) => {
 // Example additional API route
 app.get('/api/data', (c) => ok(c, { message: 'Here is some sample data' }));
 
+// Roles endpoints (CRUD to allow future changes)
+app.get('/api/roles', async (c) => {
+  const { DB } = c.env;
+  const rows = await DB.prepare('SELECT id, name, level, permissions, created_at FROM roles ORDER BY level ASC').all();
+  return ok(c, rows.results || []);
+});
+app.get('/api/roles/:id', async (c) => {
+  const { DB } = c.env;
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
+  const row = await DB.prepare('SELECT id, name, level, permissions, created_at FROM roles WHERE id = ?').bind(id).first();
+  if (!row) return bad(c, 'Role not found', 404);
+  return ok(c, row);
+});
+app.post('/api/roles', async (c) => {
+  const { DB } = c.env;
+  const body = await c.req.json().catch(() => ({}));
+  const name = (body.name || '').trim();
+  const level = Number(body.level);
+  let permissions = body.permissions;
+  if (!name) return bad(c, 'name is required');
+  if (!Number.isInteger(level)) return bad(c, 'level must be an integer');
+  try {
+    if (typeof permissions === 'string') {
+      try { permissions = JSON.parse(permissions); } catch {}
+    }
+    const permStr = permissions == null ? null : JSON.stringify(permissions);
+    const res = await DB.prepare('INSERT INTO roles (name, level, permissions) VALUES (?, ?, ?)').bind(name, level, permStr).run();
+    const id = res?.lastRowId ?? res?.meta?.last_row_id ?? res?.meta?.lastRowId;
+    const row = await DB.prepare('SELECT id, name, level, permissions, created_at FROM roles WHERE id = ?').bind(id).first();
+    return ok(c, row);
+  } catch (e) {
+    if ((e.message||'').includes('UNIQUE')) return bad(c, 'Role name or level already exists', 409);
+    return bad(c, `Failed to create role: ${e.message || e}`, 400);
+  }
+});
+app.put('/api/roles/:id', async (c) => {
+  const { DB } = c.env;
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
+  const body = await c.req.json().catch(() => ({}));
+  const fields = [];
+  const params = [];
+  if ('name' in body) { fields.push('name = ?'); params.push((body.name||'').trim() || null); }
+  if ('level' in body) { const lvl = Number(body.level); if (!Number.isInteger(lvl)) return bad(c, 'level must be an integer'); fields.push('level = ?'); params.push(lvl); }
+  if ('permissions' in body) {
+    let p = body.permissions;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch {} }
+    fields.push('permissions = ?'); params.push(p == null ? null : JSON.stringify(p));
+  }
+  if (!fields.length) return bad(c, 'No updatable fields provided');
+  params.push(id);
+  try {
+    await DB.prepare(`UPDATE roles SET ${fields.join(', ')} WHERE id = ?`).bind(...params).run();
+    const row = await DB.prepare('SELECT id, name, level, permissions, created_at FROM roles WHERE id = ?').bind(id).first();
+    return ok(c, row);
+  } catch (e) {
+    if ((e.message||'').includes('UNIQUE')) return bad(c, 'Role name or level already exists', 409);
+    return bad(c, `Failed to update role: ${e.message || e}`, 400);
+  }
+});
+app.delete('/api/roles/:id', async (c) => {
+  const { DB } = c.env;
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
+  const u = await DB.prepare('SELECT COUNT(1) AS cnt FROM users WHERE role_id = ?').bind(id).first();
+  if ((u?.cnt || 0) > 0) return bad(c, 'Role is in use by users; reassign users before deletion', 409);
+  await DB.prepare('DELETE FROM roles WHERE id = ?').bind(id).run();
+  return ok(c, { deleted: true });
+});
+
 export default app;
 
