@@ -143,8 +143,79 @@ class ODICFinanceSystem {
             }
         }
 
-        openImportModal(){ alert('Open Import dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
-        openExportModal(){ alert('Open Export dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
+        openImportModal(){ this.renderDataModal('Import'); }
+        openExportModal(){ this.renderDataModal('Export'); }
+
+        renderDataModal(mode){
+            const datasets = [
+                { id:'vendors', label:'Vendors' },
+                { id:'payments', label:'Payments' },
+                { id:'instruments', label:'Instruments' },
+                { id:'pos', label:'Purchase Orders' },
+                { id:'invoices', label:'Invoices' },
+                { id:'dcs', label:'Delivery Challans' },
+            ];
+            const bd=document.createElement('div');
+            bd.className='odic-modal-backdrop';
+            const m=document.createElement('div'); m.className='odic-modal';
+            m.innerHTML = `
+                <div class="odic-modal__header">
+                  <h3 class="odic-modal__title">${mode} Data</h3>
+                  <button class="odic-modal__close" aria-label="Close">×</button>
+                </div>
+                <div class="odic-modal__body">
+                  <div class="odic-field">
+                    <label>Choose dataset</label>
+                    <select class="odic-select" id="odic-dataset">
+                      ${datasets.map(d=>`<option value="${d.id}">${d.label}</option>`).join('')}
+                    </select>
+                    <div class="odic-help">Keep navigation generic. Choose dataset here.</div>
+                  </div>
+                  <div id="odic-mode-area"></div>
+                </div>
+                <div class="odic-modal__footer">
+                  <button class="odic-btn odic-btn--secondary" data-close>Close</button>
+                  <button class="odic-btn odic-btn--primary" id="odic-action">${mode}</button>
+                </div>`;
+            bd.appendChild(m);
+            const remove=()=>bd.remove();
+            m.querySelector('[data-close]').onclick=remove;
+            m.querySelector('.odic-modal__close').onclick=remove;
+            const area=m.querySelector('#odic-mode-area');
+            const select=m.querySelector('#odic-dataset');
+            const action=m.querySelector('#odic-action');
+
+            const buildImport=()=>{
+              area.innerHTML = '<div class="odic-field"><label>CSV File</label><input type="file" id="odic-file" accept=".csv" class="odic-input" /></div><label class="odic-field"><input type="checkbox" id="odic-dryrun" /> Dry-run (validate only)</label>';
+            };
+            const buildExport=()=>{
+              area.innerHTML = '<div class="odic-help">Click Export to download the CSV for the selected dataset.</div>';
+            };
+            (mode==='Import'?buildImport:buildExport)();
+
+            action.onclick = async ()=>{
+              const ds = select.value;
+              const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+              const headers = { 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) };
+              if(mode==='Export'){
+                const map={vendors:'/api/vendors/export.csv', payments:'/api/payments/export.csv', instruments:'/api/instruments/export.csv', pos:'/api/pos/export.csv', invoices:'/api/invoices/export.csv', dcs:'/api/dcs/export.csv'};
+                const url = base + (map[ds]||'');
+                window.open(url,'_blank');
+              } else {
+                const file=document.getElementById('odic-file').files[0]; if(!file){alert('Please choose a CSV'); return;}
+                const dry=document.getElementById('odic-dryrun').checked;
+                const map={vendors:'/api/vendors/import.csv', instruments:'/api/instruments/import.csv'}; // payments/po/invoice/dc import can be added next
+                const url = base + (map[ds]||''); if(!url){ alert('Import not yet supported for '+ds); return; }
+                const fd=new FormData(); fd.append('file', file);
+                const res=await fetch(url, { method:'POST', headers: Object.assign({}, headers, dry?{'x-dry-run':'1'}:{}), body: fd});
+                const j=await res.json();
+                alert(j && j.success ? 'Import success' : ('Import failed: '+(j && j.error && j.error.message)));
+              }
+              remove();
+            };
+
+            document.body.appendChild(bd);
+        }
 
         // Role-based visibility
         applyRoleVisibility() {
