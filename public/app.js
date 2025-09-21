@@ -432,31 +432,165 @@ class ODICFinanceSystem {
             const levelHeader = ()=> ({ 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) });
             const toJSONHeaders = (extra={})=> Object.assign({ 'Content-Type':'application/json' }, extra, levelHeader());
 
-            if (addVendor) addVendor.addEventListener('click', async ()=>{
-                const company_name = prompt('Company Name');
-                if (!company_name) return;
-                try { const r=await fetch(base+'/api/vendors',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ company_name, status:'pending' })}); const j=await r.json(); alert(j.success?'Vendor created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
-            });
-            if (addPO) addPO.addEventListener('click', async ()=>{
-                const po_number = prompt('PO Number'); if(!po_number) return;
-                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
-                const amount = Number(prompt('Amount')||'0')||0;
-                try { const r=await fetch(base+'/api/pos',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ po_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'PO created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
-            });
-            if (addInvoice) addInvoice.addEventListener('click', async ()=>{
-                const invoice_number = prompt('Invoice Number'); if(!invoice_number) return;
-                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
-                const amount = Number(prompt('Amount')||'0')||0;
-                try { const r=await fetch(base+'/api/invoices',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ invoice_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'Invoice created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
-            });
-            if (addDC) addDC.addEventListener('click', async ()=>{
-                const dc_number = prompt('DC Number'); if(!dc_number) return;
-                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
-                try { const r=await fetch(base+'/api/dcs',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ dc_number, vendor_id, status:'pending' })}); const j=await r.json(); alert(j.success?'DC created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
-            });
+            if (addVendor) addVendor.addEventListener('click', ()=> this.renderCreateModal('vendor'));
+            if (addPO) addPO.addEventListener('click', ()=> this.renderCreateModal('po'));
+            if (addInvoice) addInvoice.addEventListener('click', ()=> this.renderCreateModal('invoice'));
+            if (addDC) addDC.addEventListener('click', ()=> this.renderCreateModal('dc'));
         }
 
         roleToLevel(r){ return {L1:1,L2:2,L3:3,L4:4,L5:5}[r]||0; }
+
+        currentRole(){ return (this.getSavedData('odicCurrentUser')?.role || document.getElementById('roleSelect')?.value || ''); }
+        currentLevel(){ return (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(this.currentRole())); }
+        isRoleOneOf(list){ return list.includes(this.currentRole()); }
+
+        renderCreateModal(kind){
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const hdrs = ()=> ({ 'Content-Type':'application/json', 'x-user-level': String(this.currentLevel()) });
+            const bd=document.createElement('div'); bd.className='odic-modal-backdrop';
+            const m=document.createElement('div'); m.className='odic-modal';
+            const title = kind==='vendor'?'Add Vendor': kind==='po'?'Create PO': kind==='invoice'?'Create Invoice': 'Create DC';
+            const fields = (kind==='vendor')?
+              '<div class="odic-field"><label>Company Name*</label><input id="f_company" class="odic-input" required></div>'+
+              '<div class="odic-field"><label>GSTIN</label><input id="f_gstin" class="odic-input"></div>'+
+              '<div class="odic-field"><label>PAN</label><input id="f_pan" class="odic-input"></div>'
+            : (kind==='po')?
+              '<div class="odic-field"><label>PO Number*</label><input id="f_po" class="odic-input" required></div>'+
+              '<div class="odic-field"><label>Vendor ID</label><input id="f_vendor" class="odic-input" type="number"></div>'+
+              '<div class="odic-field"><label>Amount</label><input id="f_amount" class="odic-input" type="number" value="0"></div>'
+            : (kind==='invoice')?
+              '<div class="odic-field"><label>Invoice Number*</label><input id="f_inv" class="odic-input" required></div>'+
+              '<div class="odic-field"><label>Vendor ID</label><input id="f_vendor" class="odic-input" type="number"></div>'+
+              '<div class="odic-field"><label>Amount</label><input id="f_amount" class="odic-input" type="number" value="0"></div>'
+            :
+              '<div class="odic-field"><label>DC Number*</label><input id="f_dc" class="odic-input" required></div>'+
+              '<div class="odic-field"><label>Vendor ID</label><input id="f_vendor" class="odic-input" type="number"></div>';
+            m.innerHTML = `
+              <div class="odic-modal__header"><h3 class="odic-modal__title">${title}</h3><button class="odic-modal__close">×</button></div>
+              <div class="odic-modal__body">${fields}</div>
+              <div class="odic-modal__footer"><button class="odic-btn odic-btn--secondary" data-close>Cancel</button><button class="odic-btn odic-btn--primary" id="act">Save</button></div>`;
+            bd.appendChild(m);
+            const remove=()=>bd.remove(); m.querySelector('[data-close]').onclick=remove; m.querySelector('.odic-modal__close').onclick=remove;
+            m.querySelector('#act').onclick = async ()=>{
+              try{
+                if (kind==='vendor'){
+                  const body={ company_name: m.querySelector('#f_company').value.trim(), gstin: m.querySelector('#f_gstin').value.trim()||undefined, pan: m.querySelector('#f_pan').value.trim()||undefined, status:'pending' };
+                  if (!body.company_name) return alert('Company Name required');
+                  const r=await fetch(base+'/api/vendors',{ method:'POST', headers: hdrs(), body: JSON.stringify(body)}); const j=await r.json(); alert(j.success?'Vendor created':'Failed: '+(j.error&&j.error.message));
+                } else if (kind==='po'){
+                  const body={ po_number: m.querySelector('#f_po').value.trim(), vendor_id: Number(m.querySelector('#f_vendor').value)||null, amount: Number(m.querySelector('#f_amount').value)||0, status:'pending' };
+                  if (!body.po_number) return alert('PO Number required');
+                  const r=await fetch(base+'/api/pos',{ method:'POST', headers: hdrs(), body: JSON.stringify(body)}); const j=await r.json(); alert(j.success?'PO created':'Failed: '+(j.error&&j.error.message));
+                } else if (kind==='invoice'){
+                  const body={ invoice_number: m.querySelector('#f_inv').value.trim(), vendor_id: Number(m.querySelector('#f_vendor').value)||null, amount: Number(m.querySelector('#f_amount').value)||0, status:'pending' };
+                  if (!body.invoice_number) return alert('Invoice Number required');
+                  const r=await fetch(base+'/api/invoices',{ method:'POST', headers: hdrs(), body: JSON.stringify(body)}); const j=await r.json(); alert(j.success?'Invoice created':'Failed: '+(j.error&&j.error.message));
+                } else {
+                  const body={ dc_number: m.querySelector('#f_dc').value.trim(), vendor_id: Number(m.querySelector('#f_vendor').value)||null, status:'pending' };
+                  if (!body.dc_number) return alert('DC Number required');
+                  const r=await fetch(base+'/api/dcs',{ method:'POST', headers: hdrs(), body: JSON.stringify(body)}); const j=await r.json(); alert(j.success?'DC created':'Failed: '+(j.error&&j.error.message));
+                }
+                remove();
+              }catch(e){ alert('Request failed'); }
+            };
+            document.body.appendChild(bd);
+        }
+
+        openPaymentsModal(){
+            const bd=document.createElement('div'); bd.className='odic-modal-backdrop';
+            const m=document.createElement('div'); m.className='odic-modal odic-modal--wide';
+            m.innerHTML = `
+              <div class="odic-modal__header"><h3 class="odic-modal__title">Payments</h3><button class="odic-modal__close">×</button></div>
+              <div class="odic-modal__body">
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+                  <input id="f_pay_search" placeholder="Search invoice_ref..." class="odic-input" style="max-width:240px">
+                  <select id="f_pay_status" class="odic-select" style="max-width:200px">
+                    <option value="">All statuses</option>
+                    <option>pending</option><option>approved</option><option>rejected</option><option>done</option>
+                  </select>
+                  <button class="odic-btn odic-btn--secondary" id="btn_pay_refresh">Refresh</button>
+                  <button class="odic-btn odic-btn--primary" id="btn_pay_export">Export CSV</button>
+                </div>
+                <div id="pay_table"></div>
+              </div>
+              <div class="odic-modal__footer"><button class="odic-btn odic-btn--secondary" data-close>Close</button></div>`;
+            bd.appendChild(m);
+            const remove=()=>bd.remove(); m.querySelector('[data-close]').onclick=remove; m.querySelector('.odic-modal__close').onclick=remove;
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const headers = { 'x-user-level': String(this.currentLevel()) };
+            const canUploadProof = ['L1','L5'].includes(this.currentRole());
+            const renderRows = (items=[])=>{
+              const rows = items.map(r=>{
+                const btnDone = `<button class="odic-btn odic-btn--secondary" data-done="${r.id}">Mark Done</button>`;
+                const btnProof = canUploadProof ? `<button class="odic-btn odic-btn--primary" data-proof="${r.id}">Upload Proof</button>` : '';
+                return `<tr><td>${r.id}</td><td>${r.invoice_ref||''}</td><td>${r.amount||''}</td><td>${r.status}</td><td>${r.proof_url||''}</td><td>${btnDone} ${btnProof}</td></tr>`;
+              }).join('');
+              return `<table class="table"><thead><tr><th>ID</th><th>Invoice Ref</th><th>Amount</th><th>Status</th><th>Proof</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+            };
+            const load = async ()=>{
+              const status = m.querySelector('#f_pay_status').value.trim();
+              const url = base + '/api/payments' + (status?`?status=${encodeURIComponent(status)}`:'');
+              const r = await fetch(url, { headers }); const j=await r.json();
+              m.querySelector('#pay_table').innerHTML = j && j.data ? renderRows(j.data.items) : '<div class="odic-help">No data</div>';
+              // bind row actions
+              m.querySelectorAll('[data-done]').forEach(btn=> btn.onclick = async ()=>{
+                const id=btn.getAttribute('data-done');
+                const rr=await fetch(base+`/api/payments/${id}/mark-done`, { method:'POST', headers });
+                const jj=await rr.json(); if(jj && jj.success){ btn.closest('tr').querySelector('td:nth-child(4)').textContent='done'; }
+              });
+              m.querySelectorAll('[data-proof]').forEach(btn=> btn.onclick = async ()=>{
+                const id=btn.getAttribute('data-proof'); const urlp=prompt('Proof URL'); if(!urlp) return;
+                const rr=await fetch(base+`/api/payments/${id}/proof`, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, headers), body: JSON.stringify({ proof_url: urlp })});
+                const jj=await rr.json(); if(jj && jj.success){ btn.closest('tr').querySelector('td:nth-child(5)').textContent=urlp; } else { alert(jj && jj.error && jj.error.message || 'Failed'); }
+              });
+            };
+            m.querySelector('#btn_pay_refresh').onclick=load;
+            m.querySelector('#btn_pay_export').onclick=()=>{ window.open(base+'/api/payments/export.csv','_blank'); };
+            load();
+            document.body.appendChild(bd);
+        }
+
+        openSettingsModal(){
+            if (!(this.isRoleOneOf(['L4','L5']))) { alert('Forbidden: Requires L4/L5'); return; }
+            const bd=document.createElement('div'); bd.className='odic-modal-backdrop';
+            const m=document.createElement('div'); m.className='odic-modal';
+            m.innerHTML = `
+              <div class="odic-modal__header"><h3 class="odic-modal__title">System Settings</h3><button class="odic-modal__close">×</button></div>
+              <div class="odic-modal__body">
+                <div class="odic-field"><label>Canonical Domain</label><input id="s_canon" class="odic-input" placeholder="https://dashboard.odicinternational.com"></div>
+                <div class="odic-field"><label>Allowed Origins (comma separated)</label><input id="s_origins" class="odic-input" placeholder="https://... , https://..."></div>
+                <div class="odic-field"><label>Brand Name</label><input id="s_brand" class="odic-input" value="ODIC International"></div>
+                <div class="odic-field"><label>Brand Tagline</label><input id="s_tag" class="odic-input" value="Vendor Management System (VMS)"></div>
+                <div class="odic-help">Changes take effect immediately; CORS allowlist updates may cache for ~5 minutes.</div>
+              </div>
+              <div class="odic-modal__footer"><button class="odic-btn odic-btn--secondary" data-close>Close</button><button class="odic-btn odic-btn--primary" id="save">Save</button></div>`;
+            bd.appendChild(m);
+            const remove=()=>bd.remove(); m.querySelector('[data-close]').onclick=remove; m.querySelector('.odic-modal__close').onclick=remove;
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const headers = { 'x-user-level': String(this.currentLevel()), 'Content-Type':'application/json' };
+            const getKey = async (k)=>{ try{ const r=await fetch(base+`/api/settings/${k}`); const j=await r.json(); return (j&&j.data&&j.data.value)?(JSON.parse(j.data.value)):(null);}catch(e){return null;} };
+            (async ()=>{
+              const canon = await getKey('canonical_domain'); if (canon) m.querySelector('#s_canon').value = canon;
+              const origins = await getKey('allowed_origins'); if (Array.isArray(origins)) m.querySelector('#s_origins').value = origins.join(', ');
+              const bname = await getKey('brand_name'); if (bname) m.querySelector('#s_brand').value = bname;
+              const btag = await getKey('brand_tagline'); if (btag) m.querySelector('#s_tag').value = btag;
+            })();
+            m.querySelector('#save').onclick = async ()=>{
+              try{
+                const canon = m.querySelector('#s_canon').value.trim();
+                const origins = m.querySelector('#s_origins').value.split(',').map(s=>s.trim()).filter(Boolean);
+                const bname = m.querySelector('#s_brand').value.trim();
+                const btag = m.querySelector('#s_tag').value.trim();
+                await fetch(base+'/api/settings/canonical_domain',{method:'PUT', headers, body: JSON.stringify({ value: canon })});
+                await fetch(base+'/api/settings/allowed_origins',{method:'PUT', headers, body: JSON.stringify({ value: origins })});
+                await fetch(base+'/api/settings/brand_name',{method:'PUT', headers, body: JSON.stringify({ value: bname })});
+                await fetch(base+'/api/settings/brand_tagline',{method:'PUT', headers, body: JSON.stringify({ value: btag })});
+                alert('Settings saved');
+                remove();
+              }catch(e){ alert('Save failed'); }
+            };
+            document.body.appendChild(bd);
+        }
     generateFinancialInstruments() {
         // Seed with one sample record for demo/list rendering
         return [
@@ -566,6 +700,11 @@ class ODICFinanceSystem {
             if (roleSel) {
                 roleSel.addEventListener('change', ()=> this.applyRoleVisibility());
             }
+            // Bind nav clicks for Payments and System Settings
+            const paymentsNav = document.querySelector('[data-screen="payments"]');
+            if (paymentsNav) paymentsNav.addEventListener('click', (e)=>{ e.preventDefault(); this.openPaymentsModal(); });
+            const settingsNav = document.querySelector('[data-screen="settings"]');
+            if (settingsNav) settingsNav.addEventListener('click', (e)=>{ e.preventDefault(); this.openSettingsModal(); });
         this.setupLoginHandlers();
         this.setupNavigationHandlers();
         this.setupThemeHandlers();
