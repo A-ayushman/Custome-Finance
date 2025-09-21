@@ -194,7 +194,7 @@ class ODICFinanceSystem {
             (mode==='Import'?buildImport:buildExport)();
 
             // Template download link mapping and updater
-            const templateMap = { pos: '/data/po_import_template.csv', invoices: '/data/invoice_import_template.csv', dcs: '/data/dc_import_template.csv' };
+            const templateMap = { vendors: '/data/vendors_import_template.csv', instruments: '/data/instruments_import_template.csv', pos: '/data/po_import_template.csv', invoices: '/data/invoice_import_template.csv', dcs: '/data/dc_import_template.csv' };
             const updateTemplateLink = () => {
               const ds = select.value;
               const a = m.querySelector('#odic-template-link');

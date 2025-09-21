@@ -1,0 +1,2 @@
+title,type_name,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes
+BG/2025-26/0002,Bank Guarantee,BG-0002,1,500000,INR,active,2025-09-15,2026-09-15,https://example.com/bg.pdf,Initial BG
