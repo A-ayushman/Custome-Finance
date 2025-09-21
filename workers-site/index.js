@@ -5,24 +5,61 @@ import { cors } from 'hono/cors';
 const ok = (c, data) => c.json({ success: true, data });
 const bad = (c, message, status = 400) => c.json({ success: false, error: { message } }, status);
 
+// RBAC helpers by role level (L1..L5)
+const LEVEL = { L1:1, L2:2, L3:3, L4:4, L5:5 };
+function requireLevelAtLeast(c, min){
+  const u = c.req.header('x-user-level');
+  const lvl = Number(u||0);
+  if (!Number.isInteger(lvl) || lvl < min) {
+    return bad(c, 'forbidden', 403);
+  }
+  return null;
+}
+// shortcut checks
+const canCreateEntries = (lvl)=> lvl>=LEVEL.L2; // L2+ can create entries (PO, vendor, invoice, DC)
+const canApprove = (lvl)=> lvl>=LEVEL.L4;       // L4/L5 approve
+const canMarkPaymentDone = (lvl)=> lvl===LEVEL.L1 || lvl===LEVEL.L5;
+
 const app = new Hono();
 
-// In production, lock CORS to your Pages domain(s)
-const ALLOWED_ORIGINS = [
+// In production, lock CORS to your Pages domain(s) with dynamic allowlist via settings
+const ALLOWED_ORIGINS_BASE = [
   'https://odic-finance-ui.pages.dev',
   'https://dashboard.odicinternational.com',
   'https://api.odicinternational.com',
-  // Add staging domains if used
   'https://dashboard-staging.odicinternational.com',
   'https://api-staging.odicinternational.com',
 ];
+let __allowedOrigins = ALLOWED_ORIGINS_BASE.slice();
+let __ao_expiry = 0;
+async function refreshAllowedOrigins(c) {
+  const now = Date.now();
+  if (now < __ao_expiry) return __allowedOrigins;
+  __ao_expiry = now + 5 * 60 * 1000; // 5 minutes cache
+  try {
+    const row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('allowed_origins').first();
+    const canon = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('canonical_domain').first();
+    const extras = [];
+    if (canon?.value) {
+      try { const v = JSON.parse(canon.value); if (v) extras.push(String(v)); } catch { extras.push(String(canon.value)); }
+    }
+    if (row?.value) {
+      try { const vals = JSON.parse(row.value); if (Array.isArray(vals)) extras.push(...vals); }
+      catch { extras.push(String(row.value)); }
+    }
+    const set = new Set(ALLOWED_ORIGINS_BASE.concat(extras.filter(Boolean)));
+    __allowedOrigins = Array.from(set);
+  } catch (_) { /* keep previous */ }
+  return __allowedOrigins;
+}
 // Strict CORS gate for browsers: block disallowed origins early
 app.use('/*', async (c, next) => {
   const origin = c.req.header('Origin');
   if (origin) {
     try {
       const o = new URL(origin).origin;
-      if (!ALLOWED_ORIGINS.includes(o)) {
+      const list = await refreshAllowedOrigins(c);
+      if (!list.includes(o)) {
         return bad(c, 'CORS not allowed for this origin', 403);
       }
     } catch {
@@ -37,7 +74,7 @@ app.use('/*', cors({
     if (!origin) return '*';
     try {
       const o = new URL(origin).origin;
-      return ALLOWED_ORIGINS.includes(o) ? o : '';
+      return __allowedOrigins.includes(o) ? o : '';
     } catch {
       return '';
     }
@@ -103,10 +140,10 @@ const isValidGSTIN = (s) => typeof s === 'string' && GSTIN_REGEX.test(s.trim());
 const isValidPAN = (s) => typeof s === 'string' && PAN_REGEX.test(s.trim());
 
 // Root route for basic API check
-app.get('/', (c) => c.text('Welcome to ODIC Finance API'));
+app.get('/', (c) => c.text('Welcome to ODIC International API'));
 
 // Health check API
-app.get('/api/health', (c) => ok(c, { status: 'healthy', version: '2.1.0', timestamp: new Date().toISOString() }));
+app.get('/api/health', (c) => ok(c, { status: 'healthy', version: '2.2.0', timestamp: new Date().toISOString() }));
 
 // Vendors endpoints (Phase 1)
 app.get('/api/vendors', async (c) => {
@@ -157,6 +194,8 @@ app.get('/api/vendors/:id', async (c) => {
 });
 
 app.post('/api/vendors', async (c) => {
+  const u = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(u)) return bad(c,'forbidden',403);
   const { DB } = c.env;
   const body = await c.req.json().catch(() => ({}));
   if (!body.company_name) return bad(c, 'company_name is required');
@@ -172,8 +211,8 @@ app.post('/api/vendors', async (c) => {
   if (typeof body.rating === 'number') rating = body.rating;
 
   try {
-    const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, address_lines, state, state_code, pin_code, contact_person, contact_number, email, business_type, status, rating, tags, is_draft)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const params = [
       body.company_name,
       body.legal_name,
@@ -189,7 +228,8 @@ app.post('/api/vendors', async (c) => {
       body.business_type,
       status,
       rating,
-      body.tags === undefined || body.tags === null ? null : JSON.stringify(body.tags)
+      body.tags === undefined || body.tags === null ? null : JSON.stringify(body.tags),
+      (c.req.header('x-draft')==='1' ? 1 : 0)
     ];
     const sanitized = params.map(v => (v === undefined ? null : v));
     const res = await stmt.bind(...sanitized).run();
@@ -227,6 +267,8 @@ app.post('/api/vendors', async (c) => {
       });
     }
 
+    // Audit log
+    try { await DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?, ?, ?, ?, ?)').bind(u,'create','vendor',id, JSON.stringify({company_name:body.company_name,gstin:body.gstin})).run(); } catch(_){ }
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
     return ok(c, row);
   } catch (e) {
@@ -238,6 +280,8 @@ app.post('/api/vendors', async (c) => {
 });
 
 app.put('/api/vendors/:id', async (c) => {
+  const u = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(u)) return bad(c,'forbidden',403);
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid vendor id', 400);
@@ -274,6 +318,7 @@ app.put('/api/vendors/:id', async (c) => {
   const sql = `UPDATE vendors SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
   try {
     await DB.prepare(sql).bind(...params).run();
+    try { await DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?, ?, ?, ?, ?)').bind(u,'update','vendor',id, JSON.stringify(body)).run(); } catch(_){ }
     const row = await DB.prepare('SELECT * FROM vendors WHERE id = ?').bind(id).first();
     return ok(c, row);
   } catch (e) {
@@ -312,10 +357,31 @@ app.get('/api/vendors/unique/pan/:pan', async (c) => {
   }
 });
 
-// CSV export of vendors
+// CSV export of vendors (supports optional search/status filters)
 app.get('/api/vendors/export.csv', async (c) => {
   const { DB } = c.env;
-  const rows = await DB.prepare('SELECT id, company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating, created_at FROM vendors ORDER BY created_at DESC').all();
+  const url = new URL(c.req.url);
+  const search = (url.searchParams.get('search') || '').trim();
+  const statusRaw = (url.searchParams.get('status') || '').trim();
+  const status = normalizeStatus(statusRaw);
+
+  const where = [];
+  const params = [];
+  if (search) {
+    where.push('(company_name LIKE ? OR legal_name LIKE ? OR gstin LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (status) {
+    if (!ALLOWED_STATUSES.has(status)) {
+      return bad(c, `Invalid status filter. Allowed: ${[...ALLOWED_STATUSES].join(', ')}`);
+    }
+    where.push('status = ?');
+    params.push(status);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const stmt = DB.prepare(`SELECT id, company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating, created_at FROM vendors ${whereSql} ORDER BY created_at DESC`);
+  const rows = await stmt.bind(...params).all();
   const items = rows.results || [];
   const header = ['id','company_name','legal_name','gstin','pan','state','state_code','pin_code','business_type','status','rating','created_at'];
   const esc = (v) => {
@@ -324,11 +390,17 @@ app.get('/api/vendors/export.csv', async (c) => {
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const csv = [header.join(',')].concat(items.map(r => header.map(h => esc(r[h])).join(','))).join('\n');
-  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store' }});
+  const today = new Date().toISOString().slice(0,10);
+  // Audit export action
+try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type) VALUES (?, ?, ?)').bind(Number(c.req.header('x-user-level')||0),'export','vendors').run(); } catch(_){ }
+return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="vendors_export_${today}.csv"` }});
 });
 
+// CSV dry-run: validate CSV without writing (set header x-dry-run:1)
 // CSV import of vendors (upsert by GSTIN)
 app.post('/api/vendors/import.csv', async (c) => {
+  const u = Number(c.req.header('x-user-level')||0);
+  if (!canCreateEntries(u)) return bad(c,'forbidden',403);
   const { DB } = c.env;
   const ct = c.req.header('Content-Type') || '';
   let text = '';
@@ -349,6 +421,7 @@ app.post('/api/vendors/import.csv', async (c) => {
   const required = ['company_name'];
   for (const r of required) if (idx(r) === -1) return bad(c, `Missing required column: ${r}`);
 
+  const dryRun = c.req.header('x-dry-run') === '1';
   let inserted = 0, updated = 0, skipped = 0, errors = [];
   for (let i = 1; i < lines.length; i++) {
     const raw = lines[i];
@@ -367,27 +440,50 @@ app.post('/api/vendors/import.csv', async (c) => {
       const stmt = DB.prepare(`INSERT INTO vendors (company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(gstin) WHERE gstin IS NOT NULL DO UPDATE SET company_name=excluded.company_name, legal_name=excluded.legal_name, pan=excluded.pan, state=excluded.state, state_code=excluded.state_code, pin_code=excluded.pin_code, business_type=excluded.business_type, status=excluded.status, rating=excluded.rating, updated_at=CURRENT_TIMESTAMP`);
-      const res = await stmt.bind(
-        company_name,
-        rec.legal_name || null,
-        gstin,
-        rec.pan || null,
-        rec.state || null,
-        rec.state_code || null,
-        rec.pin_code || null,
-        rec.business_type || null,
-        status,
-        rating
-      ).run();
-      if (res.meta?.rows_written === 1 && res.meta?.changes === 1) inserted++;
-      else updated++;
+      if (!dryRun) {
+        const res = await stmt.bind(
+          company_name,
+          rec.legal_name || null,
+          gstin,
+          rec.pan || null,
+          rec.state || null,
+          rec.state_code || null,
+          rec.pin_code || null,
+          rec.business_type || null,
+          status,
+          rating
+        ).run();
+        if (res.meta?.rows_written === 1 && res.meta?.changes === 1) inserted++;
+        else updated++;
+      }
     } catch (e) {
       if ((e.message || '').includes('UNIQUE') && (e.message || '').includes('gstin')) { updated++; continue; }
       errors.push(`Row ${i+1}: ${e.message || e}`);
     }
   }
 
-  return ok(c, { inserted, updated, skipped, errors });
+  // Audit
+  try { await DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?, ?, ?, ?)').bind(Number(c.req.header('x-user-level')||0), dryRun ? 'import_dry_run' : 'import', 'vendors_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c, { dryRun, inserted, updated, skipped, errors });
+});
+
+// Settings API (editable by L4/L5) to manage custom domains and other toggles
+app.get('/api/settings/:key', async (c) => {
+  const key = c.req.param('key');
+  const row = await c.env.DB.prepare('SELECT key, value, updated_at FROM settings WHERE key = ?').bind(key).first();
+  return ok(c, row || null);
+});
+app.put('/api/settings/:key', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canApprove(lvl)) return bad(c,'forbidden',403);
+  const key = c.req.param('key');
+  const body = await c.req.json().catch(()=>({}));
+  const value = body.value == null ? null : JSON.stringify(body.value);
+  await c.env.DB.prepare('INSERT INTO settings (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP').bind(key,value).run();
+  // Audit
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl,'settings_update','settings', JSON.stringify({key})).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT key, value, updated_at FROM settings WHERE key = ?').bind(key).first();
+  return ok(c, row);
 });
 
 // Example additional API route
@@ -462,6 +558,32 @@ app.delete('/api/roles/:id', async (c) => {
   if ((u?.cnt || 0) > 0) return bad(c, 'Role is in use by users; reassign users before deletion', 409);
   await DB.prepare('DELETE FROM roles WHERE id = ?').bind(id).run();
   return ok(c, { deleted: true });
+});
+
+// Payments endpoints
+app.post('/api/payments/:id/proof', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!(lvl === LEVEL.L1 || lvl === LEVEL.L5)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id', 400);
+  const body = await c.req.json().catch(() => ({}));
+  const proof_url = (body.proof_url || '').toString().trim();
+  if (!proof_url) return bad(c, 'proof_url is required');
+  await c.env.DB.prepare('UPDATE payments SET proof_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(proof_url, id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'upload_proof','payment',id, JSON.stringify({proof_url})).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  return ok(c, row);
+});
+
+app.post('/api/payments/:id/mark-done', async (c) => {
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!canMarkPaymentDone(lvl)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id', 400);
+  await c.env.DB.prepare('UPDATE payments SET status = "done", marked_done_by_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(lvl, id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id) VALUES (?,?,?,?)').bind(lvl,'mark_done','payment',id).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
+  return ok(c, row);
 });
 
 export default app;
