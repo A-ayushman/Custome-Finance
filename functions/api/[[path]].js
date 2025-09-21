@@ -30,7 +30,8 @@ export async function onRequest(context) {
     const isDCEndpoint = /^(dcs|delivery_challans?)(\b|\/)/.test(pathAfterApi);
     const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 
-    if (isMutating && (isVendorsEndpoint || isRolesEndpoint || isPaymentsEndpoint || isInstrumentsEndpoint || isPOEndpoint || isInvoicesEndpoint || isDCEndpoint)) {
+    const isCsvImport = /^(vendors|payments|instruments|pos|invoices|dcs)\/import\.csv$/.test(pathAfterApi);
+    if (isMutating && !isCsvImport && (isVendorsEndpoint || isRolesEndpoint || isPaymentsEndpoint || isInstrumentsEndpoint || isPOEndpoint || isInvoicesEndpoint || isDCEndpoint)) {
       try {
         if (contentType.indexOf('multipart/form-data') !== -1) {
           const fd = await request.formData();
