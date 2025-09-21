@@ -1,6 +1,6 @@
 /**
- * ODIC Finance System - Production Ready Application v2.1.1
- * Enterprise Finance Management Platform - Complete JavaScript Implementation
+ * ODIC International - Vendor Management System (VMS) - Production Ready Application v2.1.1
+ * Vendor Management System - Complete JavaScript Implementation
  * Build: 2025.09.18 - FIXED VERSION
  * 
  * Critical Bug Fixes:
@@ -148,9 +148,9 @@ class ODICFinanceSystem {
      * Initialize the complete application
      */
     init() {
-        console.log(`🚀 ODIC Finance System v${this.version} initializing... [${this.buildNumber}]`);
+        console.log(`🚀 ODIC International VMS v${this.version} initializing... [${this.buildNumber}]`);
         console.log(`📦 Build: ${this.buildNumber} - FIXED VERSION`);
-        console.log(`🏢 Enterprise Edition - Production Ready`);
+        console.log(`🧭 Vendor Management System (VMS) - Production Ready`);
         
         // Start with loading screen visible
         setTimeout(() => {
