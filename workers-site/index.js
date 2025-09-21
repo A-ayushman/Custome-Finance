@@ -692,11 +692,66 @@ app.get('/api/instruments/:id', async (c) => {
   if (!row) return bad(c,'Not found',404);
   return ok(c, row);
 });
+function parseDetailsByType(name, body) {
+  // Normalize per instrument type with forward-compat JSON shape
+  switch ((name||'').toLowerCase()) {
+    case 'bank guarantee':
+      return {
+        bank_name: body.bank_name || null,
+        bg_number: body.bg_number || null,
+        beneficiary: body.beneficiary || null,
+        margin_percent: body.margin_percent == null ? null : Number(body.margin_percent),
+        claimable_until: body.claimable_until || null
+      };
+    case 'letter of credit':
+      return {
+        issuing_bank: body.issuing_bank || null,
+        advising_bank: body.advising_bank || null,
+        lc_number: body.lc_number || null,
+        shipment_terms: body.shipment_terms || null,
+        expiry_date: body.expiry_date || null,
+      };
+    case 'rtgs':
+    case 'neft':
+    case 'upi_b2b':
+      return {
+        utr: body.utr || null,
+        txn_date: body.txn_date || null,
+        payer_bank: body.payer_bank || null,
+        payee_bank: body.payee_bank || null,
+        channel: (name||'').toUpperCase()
+      };
+    case 'e-kuber':
+    case 'pfms':
+      return {
+        pfms_id: body.pfms_id || null,
+        sanction_no: body.sanction_no || null,
+        scheme: body.scheme || null,
+        fund_source: body.fund_source || null
+      };
+    case 'gem payment':
+      return {
+        gem_order_no: body.gem_order_no || null,
+        gem_invoice_no: body.gem_invoice_no || null,
+        gem_seller_id: body.gem_seller_id || null,
+      };
+    case 'digital signature':
+      return {
+        signer_id: body.signer_id || null,
+        dsc_serial: body.dsc_serial || null,
+        signed_at: body.signed_at || null,
+        audit_trail_url: body.audit_trail_url || null,
+      };
+    default:
+      return {};
+  }
+}
+
 app.post('/api/instruments', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
   const b = await c.req.json().catch(()=>({}));
-  const type_id = b.type_id ? Number(b.type_id) : null;
+  const type_id = b.type_id ? Number(b.type_id) : null; const type_name = (b.type_name||'').toString();
   const title = (b.title||'').toString().trim();
   if (!title) return bad(c, 'title is required');
   const reference_no = (b.reference_no||'').toString();
@@ -708,8 +763,15 @@ app.post('/api/instruments', async (c) => {
   const expiry_date = b.expiry_date || null;
   const document_url = b.document_url || null;
   const notes = b.notes || null;
-  await c.env.DB.prepare('INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,created_by_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(toDb(type_id), toDb(title), toDb(reference_no), toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), lvl).run();
+  const details = parseDetailsByType(type_name, b);
+  const bg_number = details.bg_number || null;
+  const lc_number = details.lc_number || null;
+  const utr = details.utr || null;
+  const pfms_id = details.pfms_id || null;
+  const gem_order_no = details.gem_order_no || null;
+  const signer_id = details.signer_id || null;
+  await c.env.DB.prepare('INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id,created_by_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(toDb(type_id), toDb(title), toDb(reference_no), toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), JSON.stringify(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id), lvl).run();
   const row = await c.env.DB.prepare('SELECT * FROM financial_instruments ORDER BY id DESC LIMIT 1').first();
   try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'create','financial_instrument',row?.id||null, JSON.stringify({title,amount})).run(); } catch(_){ }
   return ok(c, row);
@@ -722,7 +784,7 @@ app.put('/api/instruments/:id', async (c) => {
   const b = await c.req.json().catch(()=>({}));
   const fields = [];
   const params = [];
-  for (const k of ['type_id','title','reference_no','vendor_id','amount','currency','status','issue_date','expiry_date','document_url','notes']) {
+  for (const k of ['type_id','title','reference_no','vendor_id','amount','currency','status','issue_date','expiry_date','document_url','notes','details','bg_number','lc_number','utr','pfms_id','gem_order_no','signer_id']) {
     if (k in b) { fields.push(`${k} = ?`); params.push(b[k]); }
   }
   if (!fields.length) return bad(c, 'No updatable fields provided');

@@ -121,8 +121,36 @@ class ODICFinanceSystem {
             L5: ['all_permissions', 'role_manage', 'system_settings', 'export_all', 'user_management', 'security_settings', 'audit_access']
         };
 
+        setupDataMenu(){
+            // Ensure nav has a Data section with Import/Export generic entries
+            const sidebar=document.getElementById('sidebar');
+            if (!sidebar) return;
+            let dataHeader = document.getElementById('dataSectionHeader');
+            if (!dataHeader) {
+                const nav = sidebar.querySelector('.sidebar-nav');
+                if (nav) {
+                    const h = document.createElement('div');
+                    h.id = 'dataSectionHeader';
+                    h.className = 'sidebar-section';
+                    h.innerHTML = '<h4>Data</h4>';
+                    nav.appendChild(h);
+                    const imp = document.createElement('a');
+                    imp.href = '#'; imp.className='nav-item'; imp.innerHTML = '<i class="fas fa-upload"></i><span>Import</span>'; imp.addEventListener('click', ()=> this.openImportModal());
+                    const exp = document.createElement('a');
+                    exp.href = '#'; exp.className='nav-item'; exp.innerHTML = '<i class="fas fa-download"></i><span>Export</span>'; exp.addEventListener('click', ()=> this.openExportModal());
+                    nav.appendChild(imp); nav.appendChild(exp);
+                }
+            }
+        }
+
+        openImportModal(){ alert('Open Import dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
+        openExportModal(){ alert('Open Export dialog: choose Vendors / Payments / Instruments / POs / Invoices / DCs'); }
+
         // Role-based visibility
         applyRoleVisibility() {
+            // Upload proof button visibility decision: L1/L5 only
+            // Actual buttons will be rendered in Payments UI next; we’ll hide them for others
+
             const user = this.getSavedData('odicCurrentUser');
             const role = (user && user.role) || document.getElementById('roleSelect')?.value || '';
             const fab = document.getElementById('fabContainer');
@@ -751,6 +779,7 @@ class ODICFinanceSystem {
      */
     showMainApp() {
             this.applyRoleVisibility();
+                this.setupDataMenu();
         console.log('🎯 Showing main application interface...');
         
         const loginScreen = document.getElementById('loginScreen');
