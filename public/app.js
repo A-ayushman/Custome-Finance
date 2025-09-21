@@ -121,6 +121,20 @@ class ODICFinanceSystem {
             L5: ['all_permissions', 'role_manage', 'system_settings', 'export_all', 'user_management', 'security_settings', 'audit_access']
         };
 
+        // Role-based visibility
+        applyRoleVisibility() {
+            const user = this.getSavedData('odicCurrentUser');
+            const role = (user && user.role) || document.getElementById('roleSelect')?.value || '';
+            const fab = document.getElementById('fabContainer');
+            const settingsNav = document.querySelector('[data-screen="settings"]');
+            const creationAllowed = ['L2','L3','L4','L5'].includes(role);
+            const approvalsAllowed = ['L4','L5'].includes(role);
+            const systemAllowed = ['L4','L5'].includes(role);
+            if (fab) fab.style.display = creationAllowed ? 'flex' : 'none';
+            if (settingsNav) settingsNav.style.display = systemAllowed ? '' : 'none';
+            // Approve buttons will be handled contextually where needed
+        }
+
         // Application state management
         this.state = {
             isLoading: false,
@@ -155,6 +169,7 @@ class ODICFinanceSystem {
         // Start with loading screen visible
         setTimeout(() => {
             this.setupEventListeners();
+                this.setupFabs();
             this.loadSavedState();
             this.setupOfflineDetection();
             this.setupServiceWorkerUpdates();
@@ -306,6 +321,43 @@ class ODICFinanceSystem {
     generatePurchaseOrders() { return []; }
     generateInvoices() { return []; }
     generatePayments() { return []; }
+
+        setupFabs() {
+            const c = document.getElementById('fabContainer');
+            if (!c) return;
+            const addVendor = document.getElementById('fabAddVendor');
+            const addPO = document.getElementById('fabAddPO');
+            const addInvoice = document.getElementById('fabAddInvoice');
+            const addDC = document.getElementById('fabAddDC');
+            const base = (window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const levelHeader = ()=> ({ 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) });
+            const toJSONHeaders = (extra={})=> Object.assign({ 'Content-Type':'application/json' }, extra, levelHeader());
+
+            if (addVendor) addVendor.addEventListener('click', async ()=>{
+                const company_name = prompt('Company Name');
+                if (!company_name) return;
+                try { const r=await fetch(base+'/api/vendors',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ company_name, status:'pending' })}); const j=await r.json(); alert(j.success?'Vendor created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addPO) addPO.addEventListener('click', async ()=>{
+                const po_number = prompt('PO Number'); if(!po_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                const amount = Number(prompt('Amount')||'0')||0;
+                try { const r=await fetch(base+'/api/pos',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ po_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'PO created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addInvoice) addInvoice.addEventListener('click', async ()=>{
+                const invoice_number = prompt('Invoice Number'); if(!invoice_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                const amount = Number(prompt('Amount')||'0')||0;
+                try { const r=await fetch(base+'/api/invoices',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ invoice_number, vendor_id, amount, status:'pending' })}); const j=await r.json(); alert(j.success?'Invoice created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+            if (addDC) addDC.addEventListener('click', async ()=>{
+                const dc_number = prompt('DC Number'); if(!dc_number) return;
+                const vendor_id = Number(prompt('Vendor ID (optional)')||'')||null;
+                try { const r=await fetch(base+'/api/dcs',{ method:'POST', headers: toJSONHeaders(), body: JSON.stringify({ dc_number, vendor_id, status:'pending' })}); const j=await r.json(); alert(j.success?'DC created':'Failed: '+(j.error&&j.error.message)); } catch(e){ alert('Request failed'); }
+            });
+        }
+
+        roleToLevel(r){ return {L1:1,L2:2,L3:3,L4:4,L5:5}[r]||0; }
     generateFinancialInstruments() {
         // Seed with one sample record for demo/list rendering
         return [
@@ -410,6 +462,11 @@ class ODICFinanceSystem {
      * Setup comprehensive event listeners - FIXED VERSION
      */
     setupEventListeners() {
+            const fab = document.getElementById('fabContainer');
+            const roleSel = document.getElementById('roleSelect');
+            if (roleSel) {
+                roleSel.addEventListener('change', ()=> this.applyRoleVisibility());
+            }
         this.setupLoginHandlers();
         this.setupNavigationHandlers();
         this.setupThemeHandlers();
@@ -693,6 +750,7 @@ class ODICFinanceSystem {
      * Show main application interface - FIXED
      */
     showMainApp() {
+            this.applyRoleVisibility();
         console.log('🎯 Showing main application interface...');
         
         const loginScreen = document.getElementById('loginScreen');
