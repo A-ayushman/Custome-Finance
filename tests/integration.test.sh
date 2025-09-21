@@ -42,6 +42,9 @@ run "update vendor maps inactive->suspended" bash -c "curl -sS --fail -X PUT "$A
 # 6) List and filter by alias
 run "list filter status=active maps to approved" bash -c "curl -sS --fail "$API_BASE/api/vendors?status=active" | jq -e '.success == true' >/dev/null"
 
+# 7) Export CSV works and includes header
+run "export vendors CSV has header" bash -c "curl -sS --fail "$API_BASE/api/vendors/export.csv" | head -n1 | grep -q 'company_name'"
+
 # Results
 echo "\nTests passed: $pass, failed: $fail"
 if [[ $fail -gt 0 ]]; then exit 1; fi

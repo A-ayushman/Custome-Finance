@@ -312,10 +312,31 @@ app.get('/api/vendors/unique/pan/:pan', async (c) => {
   }
 });
 
-// CSV export of vendors
+// CSV export of vendors (supports optional search/status filters)
 app.get('/api/vendors/export.csv', async (c) => {
   const { DB } = c.env;
-  const rows = await DB.prepare('SELECT id, company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating, created_at FROM vendors ORDER BY created_at DESC').all();
+  const url = new URL(c.req.url);
+  const search = (url.searchParams.get('search') || '').trim();
+  const statusRaw = (url.searchParams.get('status') || '').trim();
+  const status = normalizeStatus(statusRaw);
+
+  const where = [];
+  const params = [];
+  if (search) {
+    where.push('(company_name LIKE ? OR legal_name LIKE ? OR gstin LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (status) {
+    if (!ALLOWED_STATUSES.has(status)) {
+      return bad(c, `Invalid status filter. Allowed: ${[...ALLOWED_STATUSES].join(', ')}`);
+    }
+    where.push('status = ?');
+    params.push(status);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const stmt = DB.prepare(`SELECT id, company_name, legal_name, gstin, pan, state, state_code, pin_code, business_type, status, rating, created_at FROM vendors ${whereSql} ORDER BY created_at DESC`);
+  const rows = await stmt.bind(...params).all();
   const items = rows.results || [];
   const header = ['id','company_name','legal_name','gstin','pan','state','state_code','pin_code','business_type','status','rating','created_at'];
   const esc = (v) => {
@@ -324,7 +345,8 @@ app.get('/api/vendors/export.csv', async (c) => {
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const csv = [header.join(',')].concat(items.map(r => header.map(h => esc(r[h])).join(','))).join('\n');
-  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store' }});
+  const today = new Date().toISOString().slice(0,10);
+  return new Response(csv, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="vendors_export_${today}.csv"` }});
 });
 
 // CSV import of vendors (upsert by GSTIN)
