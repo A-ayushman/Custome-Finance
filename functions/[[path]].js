@@ -17,6 +17,8 @@ try{var m=document.querySelector("meta[name=\"api-base-url\"]");if(m){m.setAttri
 function toJSON(fd){var o={};fd.forEach(function(v,k){if(o[k]!==undefined){if(Array.isArray(o[k]))o[k].push(v);else o[k]=[o[k],v];}else{o[k]=v;}});return o;}
 function pathOf(u){try{return new URL(u,location.href).pathname;}catch(e){return "";}}
 function isApiPath(p){return typeof p==="string" && p.indexOf("/api/")===0;}
+    function isKnownJsonPath(p){return /^(\/api\/(vendors|payments|instruments|pos|invoices|dcs))(\/|$|$)/.test(p);} 
+    function isCsvImportPath(p){return /^\/api\/(vendors|payments|instruments|pos|invoices|dcs)\/import\.csv$/.test(p);} 
 function rewrite(u){try{var U=new URL(u,location.href);var baseH=new URL(BASE).host;var h=U.host; if(isApiPath(U.pathname)){ if(h!==baseH && (h.indexOf("odicinternational.com")!==-1 || h.indexOf("workers.dev")!==-1)){ return BASE+U.pathname+U.search; } if(h===location.host){ return BASE+U.pathname+U.search; } } return U.href; }catch(e){ if(typeof u==="string"){ if(u.indexOf("/api/")===0) return BASE+u; if(u.indexOf("api/")===0) return BASE+"/"+u; } return u; }}
 (function(){
   var __origFetch=window.fetch;
@@ -25,7 +27,7 @@ function rewrite(u){try{var U=new URL(u,location.href);var baseH=new URL(BASE).h
   async function __handleBodyForVendors(url,method,headers,body){
     try{
       var p=pathOf(url);
-      if(!__isVendorPath(p))return {headers:headers,body:body};
+      if(!isKnownJsonPath(p) || isCsvImportPath(p))return {headers:headers,body:body};
       if(method!=="POST"&&method!=="PUT")return {headers:headers,body:body};
       if(body&&typeof FormData!=="undefined"&&body instanceof FormData){headers.set("Content-Type","application/json");return {headers:headers,body:JSON.stringify(__toObj(body))};}
       if(body&&typeof URLSearchParams!=="undefined"&&body instanceof URLSearchParams){headers.set("Content-Type","application/json");return {headers:headers,body:JSON.stringify(Object.fromEntries(body))};}

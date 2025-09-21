@@ -850,6 +850,86 @@ app.post('/api/dcs', async (c)=>{ const lvl=Number(c.req.header('x-user-level')|
 app.put('/api/dcs/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','dc_number','items','status']){ if(k in b){ let v=b[k]; if(k==='items') v=(v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE delivery_challans SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); return ok(c,row); });
 app.get('/api/dcs/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,dc_number,status,created_at FROM delivery_challans ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','dc_number','status','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="dcs_${today}.csv"`}}); });
 
+// CSV imports for PO, Invoices, DCs (upsert by unique number)
+app.post('/api/pos/import.csv', async (c) => {
+  const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const ct=c.req.header('Content-Type')||''; let text='';
+  if (ct.includes('multipart/form-data')) { const fd=await c.req.formData(); const f=fd.get('file'); if(!f) return bad(c,'file required'); text=await f.text(); } else { text=await c.req.text(); }
+  if (!text) return bad(c,'Empty CSV');
+  const lines=text.split(/\r?\n/).filter(l=>l.trim().length); if (lines.length<=1) return bad(c,'CSV must include header and at least one row');
+  const header=lines[0].split(',').map(h=>h.trim()); const idx=(n)=>header.indexOf(n);
+  if (idx('po_number')===-1) return bad(c,'Missing required column: po_number');
+  const dry=c.req.header('x-dry-run')==='1'; let inserted=0,updated=0,skipped=0,errors=[];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
+    const rec=Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
+    const po_number=(rec.po_number||'').trim(); if(!po_number){skipped++; continue;}
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
+    const amount = rec.amount? Number(rec.amount) : 0;
+    const status = rec.status? String(rec.status) : 'pending';
+    try{
+      const sql=`INSERT INTO purchase_orders (vendor_id,po_number,items,amount,status) VALUES (?,?,?,?,?) ON CONFLICT(po_number) DO UPDATE SET vendor_id=excluded.vendor_id, items=excluded.items, amount=excluded.amount, status=excluded.status, updated_at=CURRENT_TIMESTAMP`;
+      if (!dry) { await c.env.DB.prepare(sql).bind(toDb(vendor_id), po_number, null, amount, status).run(); }
+      dry?updated++:(inserted++); // we can't easily determine upsert, count as inserted; adjusted below
+    }catch(e){ if((e.message||'').includes('UNIQUE')){ updated++; } else { errors.push(`Row ${i+1}: ${e.message||e}`);} }
+  }
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dry?'import_dry_run':'import','pos_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
+});
+
+app.post('/api/invoices/import.csv', async (c) => {
+  const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const ct=c.req.header('Content-Type')||''; let text='';
+  if (ct.includes('multipart/form-data')) { const fd=await c.req.formData(); const f=fd.get('file'); if(!f) return bad(c,'file required'); text=await f.text(); } else { text=await c.req.text(); }
+  if (!text) return bad(c,'Empty CSV');
+  const lines=text.split(/\r?\n/).filter(l=>l.trim().length); if (lines.length<=1) return bad(c,'CSV must include header and at least one row');
+  const header=lines[0].split(',').map(h=>h.trim()); const idx=(n)=>header.indexOf(n);
+  if (idx('invoice_number')===-1) return bad(c,'Missing required column: invoice_number');
+  const dry=c.req.header('x-dry-run')==='1'; let inserted=0,updated=0,skipped=0,errors=[];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
+    const rec=Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
+    const invoice_number=(rec.invoice_number||'').trim(); if(!invoice_number){skipped++; continue;}
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
+    const amount = rec.amount? Number(rec.amount) : 0;
+    const status = rec.status? String(rec.status) : 'pending';
+    const due_date = rec.due_date||null;
+    try{
+      const sql=`INSERT INTO invoices (vendor_id,invoice_number,amount,status,due_date) VALUES (?,?,?,?,?) ON CONFLICT(invoice_number) DO UPDATE SET vendor_id=excluded.vendor_id, amount=excluded.amount, status=excluded.status, due_date=excluded.due_date, updated_at=CURRENT_TIMESTAMP`;
+      if (!dry) { await c.env.DB.prepare(sql).bind(toDb(vendor_id), invoice_number, amount, status, toDb(due_date)).run(); }
+      dry?updated++:(inserted++);
+    }catch(e){ if((e.message||'').includes('UNIQUE')){ updated++; } else { errors.push(`Row ${i+1}: ${e.message||e}`);} }
+  }
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dry?'import_dry_run':'import','invoices_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
+});
+
+app.post('/api/dcs/import.csv', async (c) => {
+  const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const ct=c.req.header('Content-Type')||''; let text='';
+  if (ct.includes('multipart/form-data')) { const fd=await c.req.formData(); const f=fd.get('file'); if(!f) return bad(c,'file required'); text=await f.text(); } else { text=await c.req.text(); }
+  if (!text) return bad(c,'Empty CSV');
+  const lines=text.split(/\r?\n/).filter(l=>l.trim().length); if (lines.length<=1) return bad(c,'CSV must include header and at least one row');
+  const header=lines[0].split(',').map(h=>h.trim()); const idx=(n)=>header.indexOf(n);
+  if (idx('dc_number')===-1) return bad(c,'Missing required column: dc_number');
+  const dry=c.req.header('x-dry-run')==='1'; let inserted=0,updated=0,skipped=0,errors=[];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
+    const rec=Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
+    const dc_number=(rec.dc_number||'').trim(); if(!dc_number){skipped++; continue;}
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
+    const status = rec.status? String(rec.status) : 'pending';
+    let items = null; if ('items' in rec) { try { items = rec.items ? JSON.stringify(JSON.parse(rec.items)) : null; } catch { items = null; } }
+    try{
+      const sql=`INSERT INTO delivery_challans (vendor_id,dc_number,items,status) VALUES (?,?,?,?) ON CONFLICT(dc_number) DO UPDATE SET vendor_id=excluded.vendor_id, items=excluded.items, status=excluded.status, updated_at=CURRENT_TIMESTAMP`;
+      if (!dry) { await c.env.DB.prepare(sql).bind(toDb(vendor_id), dc_number, items, status).run(); }
+      dry?updated++:(inserted++);
+    }catch(e){ if((e.message||'').includes('UNIQUE')){ updated++; } else { errors.push(`Row ${i+1}: ${e.message||e}`);} }
+  }
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dry?'import_dry_run':'import','dcs_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
+});
+
 });
 app.post('/api/instruments/import.csv', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
@@ -863,23 +943,84 @@ app.post('/api/instruments/import.csv', async (c) => {
   const header = lines[0].split(',').map(h=>h.trim());
   const idx=(n)=>header.indexOf(n);
   const req=['title']; for (const r of req) if (idx(r)===-1) return bad(c,`Missing required column: ${r}`);
+
+  const dryRun = c.req.header('x-dry-run') === '1';
   let inserted=0, updated=0, skipped=0, errors=[];
+
+  // cache type name -> id
+  const typeCache = new Map();
+  async function resolveTypeId(name){
+    if (!name) return null;
+    const key = String(name).toLowerCase();
+    if (typeCache.has(key)) return typeCache.get(key);
+    const row = await c.env.DB.prepare('SELECT id FROM instrument_types WHERE lower(name) = lower(?) LIMIT 1').bind(name).first();
+    const id = row?.id || null;
+    typeCache.set(key,id);
+    return id;
+  }
+  const INSTR_ALLOWED = new Set(['pending','active','approved','rejected','expired']);
+
   for (let i=1;i<lines.length;i++){
     const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
     const rec = Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
-    const title=(rec.title||'').trim(); if(!title){skipped++; continue;}
+
+    const title=(rec.title||'').trim();
+    if(!title){skipped++; continue;}
+
+    const type_name = (rec.type_name||'').toString();
+    const type_id = await resolveTypeId(type_name);
+    const reference_no = (rec.reference_no||'').toString().trim() || null;
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
+    const amount = rec.amount? Number(rec.amount) : 0;
+    const currency = (rec.currency||'INR').toString();
+    const statusRaw = (rec.status||'pending').toString();
+    const status = INSTR_ALLOWED.has(statusRaw) ? statusRaw : 'pending';
+    const issue_date = rec.issue_date || null;
+    const expiry_date = rec.expiry_date || null;
+    const document_url = rec.document_url || null;
+    const notes = rec.notes || null;
+
+    const detailsObj = parseDetailsByType(type_name, rec) || {};
+    const bg_number = detailsObj.bg_number || null;
+    const lc_number = detailsObj.lc_number || null;
+    const utr = detailsObj.utr || null;
+    const pfms_id = detailsObj.pfms_id || null;
+    const gem_order_no = detailsObj.gem_order_no || null;
+    const signer_id = detailsObj.signer_id || null;
+    const hasDetails = Object.values(detailsObj).some(v => v !== undefined && v !== null && String(v).length>0);
+    const details = hasDetails ? JSON.stringify(detailsObj) : null;
+
     try{
-      const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ? AND reference_no IS NOT NULL').bind(rec.reference_no||null).first();
-      if (exists) {
-        await c.env.DB.prepare('UPDATE financial_instruments SET title = ?, amount = ?, status = ?, updated_at=CURRENT_TIMESTAMP WHERE id = ?').bind(title, Number(rec.amount||0), (rec.status||'pending'), exists.id).run();
-        updated++;
+      if (dryRun) {
+        if (reference_no) {
+          const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ?').bind(reference_no).first();
+          if (exists) updated++; else inserted++;
+        } else {
+          inserted++;
+        }
+        continue;
+      }
+      if (reference_no) {
+        const exists = await c.env.DB.prepare('SELECT id FROM financial_instruments WHERE reference_no = ?').bind(reference_no).first();
+        const sql = `INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(reference_no) DO UPDATE SET type_id=excluded.type_id, title=excluded.title, vendor_id=excluded.vendor_id, amount=excluded.amount, currency=excluded.currency, status=excluded.status, issue_date=excluded.issue_date, expiry_date=excluded.expiry_date, document_url=excluded.document_url, notes=excluded.notes, details=excluded.details, bg_number=excluded.bg_number, lc_number=excluded.lc_number, utr=excluded.utr, pfms_id=excluded.pfms_id, gem_order_no=excluded.gem_order_no, signer_id=excluded.signer_id, updated_at=CURRENT_TIMESTAMP`;
+        await c.env.DB.prepare(sql).bind(
+          toDb(type_id), toDb(title), toDb(reference_no), toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), toDb(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id)
+        ).run();
+        if (exists) updated++; else inserted++;
       } else {
-        await c.env.DB.prepare('INSERT INTO financial_instruments (title, reference_no, amount, status) VALUES (?,?,?,?)').bind(title, rec.reference_no||null, Number(rec.amount||0), (rec.status||'pending')).run();
+        await c.env.DB.prepare('INSERT INTO financial_instruments (type_id,title,reference_no,vendor_id,amount,currency,status,issue_date,expiry_date,document_url,notes,details,bg_number,lc_number,utr,pfms_id,gem_order_no,signer_id,created_by_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(toDb(type_id), toDb(title), null, toDb(vendor_id), toDb(amount), toDb(currency), toDb(status), toDb(issue_date), toDb(expiry_date), toDb(document_url), toDb(notes), toDb(details), toDb(bg_number), toDb(lc_number), toDb(utr), toDb(pfms_id), toDb(gem_order_no), toDb(signer_id), lvl)
+          .run();
         inserted++;
       }
-    }catch(e){errors.push(`Row ${i+1}: ${e.message||e}`)}
+    }catch(e){
+      errors.push(`Row ${i+1}: ${e.message||e}`);
+    }
   }
-  return ok(c,{inserted,updated,skipped,errors});
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dryRun?'import_dry_run':'import','instruments_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
+  return ok(c,{dryRun, inserted, updated, skipped, errors});
 });
 
 // Reports

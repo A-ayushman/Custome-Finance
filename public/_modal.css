@@ -1,0 +1,15 @@
+/* Minimal modal styles with corporate-gray/black-white aesthetic */
+.odic-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 11000; }
+.odic-modal { width: min(720px, 92vw); background: #fff; color: #111; border-radius: 12px; box-shadow: 0 20px 70px rgba(0,0,0,0.3); overflow: hidden; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+.odic-modal__header { padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,0.08); display: flex; align-items: center; justify-content: space-between; }
+.odic-modal__title { margin: 0; font-size: 18px; font-weight: 600; }
+.odic-modal__close { background: transparent; border: 0; font-size: 18px; cursor: pointer; color: #111; }
+.odic-modal__body { padding: 20px; max-height: min(70vh, 600px); overflow: auto; }
+.odic-modal__footer { padding: 14px 20px; border-top: 1px solid rgba(0,0,0,0.08); display: flex; gap: 8px; justify-content: flex-end; }
+.odic-btn { padding: 8px 14px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.odic-btn--primary { background: #111; color: #fff; }
+.odic-btn--secondary { background: #f2f2f2; color: #111; }
+.odic-input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.12); background: #fff; color: #111; }
+.odic-select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.12); background: #fff; color: #111; }
+.odic-field { margin-bottom: 14px; }
+.odic-help { font-size: 12px; color: #555; }
