@@ -48,8 +48,17 @@ jobs:
 
       - name: Make a change (placeholder) and push
         run: |
+          set -e
           BRANCH="${{ github.event.inputs.branch }}"
-          git checkout -B "$BRANCH"
+          # If the branch already exists remotely, base our local branch on it to avoid non-fast-forward
+          git fetch origin "$BRANCH" || true
+          if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/$BRANCH"; then
+            echo "Remote branch exists; basing on origin/$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            echo "Creating new branch from current HEAD"
+            git checkout -B "$BRANCH"
+          fi
           mkdir -p .odic
           echo "updated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" > .odic/last_update.txt
           git add .odic/last_update.txt
