@@ -930,7 +930,6 @@ app.post('/api/dcs/import.csv', async (c) => {
   return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
 });
 
-});
 app.post('/api/instruments/import.csv', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
