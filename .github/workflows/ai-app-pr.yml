@@ -58,13 +58,18 @@ jobs:
 
       - name: Create or update PR
         uses: actions/github-script@v7
+        env:
+          BRANCH: ${{ github.event.inputs.branch }}
+          BASE: ${{ github.event.inputs.base }}
+          TITLE: ${{ github.event.inputs.title }}
+          BODY: ${{ github.event.inputs.body }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const branch = core.getInput('branch');
-            const base = core.getInput('base');
-            const title = core.getInput('title');
-            const body = core.getInput('body');
+            const branch = process.env.BRANCH || 'feature/odic-ai-dev-update';
+            const base = process.env.BASE || 'main';
+            const title = process.env.TITLE || 'chore: automated PR via odic-finance-ai-automation';
+            const body = process.env.BODY || 'Automated PR created by odic-finance-ai-automation GitHub App.';
 
             const { data: prs } = await github.rest.pulls.list({
               owner: context.repo.owner,
