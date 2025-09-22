@@ -207,7 +207,7 @@ class ODICFinanceSystem {
 
             action.onclick = async ()=>{
               const ds = select.value;
-              const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+              const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"]')?.content||'').replace(/\/$/,'');
               const headers = { 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) };
               if(mode==='Export'){
                 const map={vendors:'/api/vendors/export.csv', payments:'/api/payments/export.csv', instruments:'/api/instruments/export.csv', pos:'/api/pos/export.csv', invoices:'/api/invoices/export.csv', dcs:'/api/dcs/export.csv'};
@@ -440,7 +440,7 @@ class ODICFinanceSystem {
             const addPO = document.getElementById('fabAddPO');
             const addInvoice = document.getElementById('fabAddInvoice');
             const addDC = document.getElementById('fabAddDC');
-            const base = (window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const base = (window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"]')?.content||'').replace(/\/$/,'');
             const levelHeader = ()=> ({ 'x-user-level': (this.getSavedData('odicCurrentUser')?.level || this.roleToLevel(document.getElementById('roleSelect')?.value || '')) });
             const toJSONHeaders = (extra={})=> Object.assign({ 'Content-Type':'application/json' }, extra, levelHeader());
 
@@ -457,7 +457,7 @@ class ODICFinanceSystem {
         isRoleOneOf(list){ return list.includes(this.currentRole()); }
 
         renderCreateModal(kind){
-            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"]')?.content||'').replace(/\/$/,'');
             const hdrs = ()=> ({ 'Content-Type':'application/json', 'x-user-level': String(this.currentLevel()) });
             const bd=document.createElement('div'); bd.className='odic-modal-backdrop';
             const m=document.createElement('div'); m.className='odic-modal';
@@ -528,7 +528,7 @@ class ODICFinanceSystem {
               <div class="odic-modal__footer"><button class="odic-btn odic-btn--secondary" data-close>Close</button></div>`;
             bd.appendChild(m);
             const remove=()=>bd.remove(); m.querySelector('[data-close]').onclick=remove; m.querySelector('.odic-modal__close').onclick=remove;
-            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"]')?.content||'').replace(/\/$/,'');
             const headers = { 'x-user-level': String(this.currentLevel()) };
             const canUploadProof = ['L1','L5'].includes(this.currentRole());
             const renderRows = (items=[])=>{
@@ -578,7 +578,7 @@ class ODICFinanceSystem {
               <div class="odic-modal__footer"><button class="odic-btn odic-btn--secondary" data-close>Close</button><button class="odic-btn odic-btn--primary" id="save">Save</button></div>`;
             bd.appendChild(m);
             const remove=()=>bd.remove(); m.querySelector('[data-close]').onclick=remove; m.querySelector('.odic-modal__close').onclick=remove;
-            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"])?.content||'').replace(/\/$/,'');
+            const base=(window.ODIC_API_BASE_URL||document.querySelector('meta[name="api-base-url"]')?.content||'').replace(/\/$/,'');
             const headers = { 'x-user-level': String(this.currentLevel()), 'Content-Type':'application/json' };
             const getKey = async (k)=>{ try{ const r=await fetch(base+`/api/settings/${k}`); const j=await r.json(); return (j&&j.data&&j.data.value)?(JSON.parse(j.data.value)):(null);}catch(e){return null;} };
             (async ()=>{
@@ -1867,6 +1867,45 @@ class ODICFinanceSystem {
             info: 'fa-info-circle'
         };
         return icons[type] || 'fa-info-circle';
+    }
+
+    // Simple CSV parser returning array of objects using first row as headers
+    parseCSV(text) {
+        try {
+            if (!text) return [];
+            const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim().length > 0);
+            if (lines.length === 0) return [];
+            const split = (line) => {
+                // Handle quoted fields with commas
+                const out = [];
+                let cur = '';
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const ch = line[i];
+                    if (ch === '"') {
+                        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+                        else { inQuotes = !inQuotes; }
+                    } else if (ch === ',' && !inQuotes) {
+                        out.push(cur);
+                        cur = '';
+                    } else {
+                        cur += ch;
+                    }
+                }
+                out.push(cur);
+                return out.map(s => s.trim());
+            };
+            const headers = split(lines[0]);
+            return lines.slice(1).map(l => {
+                const cols = split(l);
+                const obj = {};
+                headers.forEach((h, i) => { obj[h] = (cols[i] ?? '').trim(); });
+                return obj;
+            });
+        } catch (e) {
+            console.warn('parseCSV failed', e);
+            return [];
+        }
     }
 
     // Backend API helpers
