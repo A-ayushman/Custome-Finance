@@ -184,7 +184,7 @@ app.get('/api/vendors', async (c) => {
   return ok(c, { page, size, total, items: rows.results || [] });
 });
 
-app.get('/api/vendors/:id', async (c) => {
+app.get('/api/vendors/:id{[0-9]+}', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid vendor id', 400);
@@ -280,7 +280,7 @@ app.post('/api/vendors', async (c) => {
   }
 });
 
-app.put('/api/vendors/:id', async (c) => {
+app.put('/api/vendors/:id{[0-9]+}', async (c) => {
   const u = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(u)) return bad(c,'forbidden',403);
   const { DB } = c.env;
@@ -562,7 +562,7 @@ app.delete('/api/roles/:id', async (c) => {
 });
 
 // Payments endpoints
-app.post('/api/payments/:id/proof', async (c) => {
+app.post('/api/payments/:id{[0-9]+}{[0-9]+}/proof', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!(lvl === LEVEL.L1 || lvl === LEVEL.L5)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -593,7 +593,7 @@ app.get('/api/payments', async (c) => {
   return ok(c, { page, size, total, items: rows.results || [] });
 });
 
-app.get('/api/payments/:id', async (c) => {
+app.get('/api/payments/:id{[0-9]+}', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid payment id');
   const row = await c.env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(id).first();
@@ -615,7 +615,7 @@ app.post('/api/payments', async (c) => {
   return ok(c, row);
 });
 
-app.put('/api/payments/:id', async (c) => {
+app.put('/api/payments/:id{[0-9]+}', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -633,7 +633,7 @@ app.put('/api/payments/:id', async (c) => {
   return ok(c, row);
 });
 
-app.post('/api/payments/:id/mark-done', async (c) => {
+app.post('/api/payments/:id{[0-9]+}{[0-9]+}/mark-done', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canMarkPaymentDone(lvl)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -685,7 +685,7 @@ app.get('/api/instruments', async (c) => {
   const rows = await DB.prepare(`SELECT * FROM financial_instruments ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params, size, (page-1)*size).all();
   return ok(c, { page, size, total, items: rows.results || [] });
 });
-app.get('/api/instruments/:id', async (c) => {
+app.get('/api/instruments/:id{[0-9]+}', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c,'Invalid id');
   const row = await c.env.DB.prepare('SELECT * FROM financial_instruments WHERE id = ?').bind(id).first();
@@ -776,7 +776,7 @@ app.post('/api/instruments', async (c) => {
   try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'create','financial_instrument',row?.id||null, JSON.stringify({title,amount})).run(); } catch(_){ }
   return ok(c, row);
 });
-app.put('/api/instruments/:id', async (c) => {
+app.put('/api/instruments/:id{[0-9]+}', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -829,25 +829,25 @@ app.get('/api/pos', async (c) => {
   const rows = await DB.prepare(`SELECT * FROM purchase_orders ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all();
   return ok(c,{page,size,total,items:rows.results||[]});
 });
-app.get('/api/pos/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.get('/api/pos/:id{[0-9]+}', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
 app.post('/api/pos', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const po_number=(b.po_number||'').toString().trim(); if(!po_number) return bad(c,'po_number required'); const items=b.items==null?null:JSON.stringify(b.items); const amount=b.amount?Number(b.amount):0; const status=PO_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; await c.env.DB.prepare('INSERT INTO purchase_orders (vendor_id,po_number,items,amount,status,created_by_level) VALUES (?,?,?,?,?,?)').bind(toDb(vendor_id),po_number,items,amount,status,lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE po_number = ?').bind(po_number).first(); return ok(c,row); });
-app.put('/api/pos/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','po_number','items','amount','status']){ if(k in b){ let v=b[k]; if(k==='items') v = (v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE purchase_orders SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.put('/api/pos/:id{[0-9]+}', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','po_number','items','amount','status']){ if(k in b){ let v=b[k]; if(k==='items') v = (v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE purchase_orders SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM purchase_orders WHERE id = ?').bind(id).first(); return ok(c,row); });
 app.get('/api/pos/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,po_number,amount,status,created_at FROM purchase_orders ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','po_number','amount','status','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="pos_${today}.csv"`}}); });
 
 // Invoices
 const INV_STATUSES = new Set(['pending','approved','rejected','paid']);
 app.get('/api/invoices', async (c)=>{ const DB=c.env.DB; const url=new URL(c.req.url); const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1); const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100); const status=(url.searchParams.get('status')||'').trim(); const vendor_id=url.searchParams.get('vendor_id'); const where=[],params=[]; if(status){where.push('status=?'); params.push(status);} if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));} const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM invoices ${whereSql}`).bind(...params).first())?.c||0; const rows=await DB.prepare(`SELECT * FROM invoices ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); return ok(c,{page,size,total,items:rows.results||[]}); });
-app.get('/api/invoices/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.get('/api/invoices/:id{[0-9]+}', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
 app.post('/api/invoices', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const invoice_number=(b.invoice_number||'').toString().trim(); if(!invoice_number) return bad(c,'invoice_number required'); const amount=b.amount?Number(b.amount):0; const status=INV_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; const due_date=b.due_date||null; await c.env.DB.prepare('INSERT INTO invoices (vendor_id,invoice_number,amount,status,due_date,created_by_level) VALUES (?,?,?,?,?,?)').bind(toDb(vendor_id),invoice_number,amount,status,toDb(due_date),lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE invoice_number = ?').bind(invoice_number).first(); return ok(c,row); });
-app.put('/api/invoices/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','invoice_number','amount','status','due_date']){ if(k in b){ params.push(b[k]); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE invoices SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.put('/api/invoices/:id{[0-9]+}', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','invoice_number','amount','status','due_date']){ if(k in b){ params.push(b[k]); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE invoices SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); return ok(c,row); });
 app.get('/api/invoices/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,invoice_number,amount,status,due_date,created_at FROM invoices ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','invoice_number','amount','status','due_date','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="invoices_${today}.csv"`}}); });
 
 // Delivery Challans (DC)
 const DC_STATUSES = new Set(['pending','approved','rejected','delivered']);
 app.get('/api/dcs', async (c)=>{ const DB=c.env.DB; const url=new URL(c.req.url); const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1); const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100); const status=(url.searchParams.get('status')||'').trim(); const vendor_id=url.searchParams.get('vendor_id'); const where=[],params=[]; if(status){where.push('status=?'); params.push(status);} if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));} const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM delivery_challans ${whereSql}`).bind(...params).first())?.c||0; const rows=await DB.prepare(`SELECT * FROM delivery_challans ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); return ok(c,{page,size,total,items:rows.results||[]}); });
-app.get('/api/dcs/:id', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
+app.get('/api/dcs/:id{[0-9]+}', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
 app.post('/api/dcs', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const dc_number=(b.dc_number||'').toString().trim(); if(!dc_number) return bad(c,'dc_number required'); const items=b.items==null?null:JSON.stringify(b.items); const status=DC_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; await c.env.DB.prepare('INSERT INTO delivery_challans (vendor_id,dc_number,items,status,created_by_level) VALUES (?,?,?,?,?)').bind(toDb(vendor_id),dc_number,items,status,lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE dc_number = ?').bind(dc_number).first(); return ok(c,row); });
-app.put('/api/dcs/:id', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','dc_number','items','status']){ if(k in b){ let v=b[k]; if(k==='items') v=(v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE delivery_challans SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); return ok(c,row); });
+app.put('/api/dcs/:id{[0-9]+}', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','dc_number','items','status']){ if(k in b){ let v=b[k]; if(k==='items') v=(v==null?null:JSON.stringify(v)); params.push(v); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE delivery_challans SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM delivery_challans WHERE id = ?').bind(id).first(); return ok(c,row); });
 app.get('/api/dcs/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,dc_number,status,created_at FROM delivery_challans ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','dc_number','status','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="dcs_${today}.csv"`}}); });
 
 // CSV imports for PO, Invoices, DCs (upsert by unique number)
