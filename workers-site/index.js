@@ -836,11 +836,240 @@ app.get('/api/pos/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('S
 
 // Invoices
 const INV_STATUSES = new Set(['pending','approved','rejected','paid']);
-app.get('/api/invoices', async (c)=>{ const DB=c.env.DB; const url=new URL(c.req.url); const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1); const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100); const status=(url.searchParams.get('status')||'').trim(); const vendor_id=url.searchParams.get('vendor_id'); const where=[],params=[]; if(status){where.push('status=?'); params.push(status);} if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));} const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM invoices ${whereSql}`).bind(...params).first())?.c||0; const rows=await DB.prepare(`SELECT * FROM invoices ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); return ok(c,{page,size,total,items:rows.results||[]}); });
+
+// Invoice approvals
+app.post('/api/invoices/:id{[0-9]+}/approve', async (c)=>{
+  const lvl = Number(c.req.header('x-user-level')||0);
+  const id = Number(c.req.param('id'));
+  if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id');
+  const inv = await c.env.DB.prepare('SELECT id,status,urp_applied,auto_calc_overridden FROM invoices WHERE id = ?').bind(id).first();
+  if(!inv) return bad(c,'Not found',404);
+  if(inv.status!=='pending') return bad(c,'Only pending invoices can be approved');
+  // Rule: If URP not applied (GSTIN missing/invalid), allow approval by L1 or L2.
+  if (inv.urp_applied===0) {
+    if (!(lvl===LEVEL.L1 || lvl===LEVEL.L2)) return bad(c,'forbidden',403);
+  } else {
+    // Otherwise require L4/L5; if auto-calc overridden, still L4/L5.
+    if (!(lvl===LEVEL.L4 || lvl===LEVEL.L5)) return bad(c,'forbidden',403);
+  }
+  await c.env.DB.prepare("UPDATE invoices SET status='approved', updated_at=CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id) VALUES (?,?,?,?)').bind(lvl,'approve','invoice',id).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first();
+  return ok(c,row);
+});
+
+app.post('/api/invoices/:id{[0-9]+}/reject', async (c)=>{
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!(lvl===LEVEL.L4 || lvl===LEVEL.L5 || lvl===LEVEL.L2 || lvl===LEVEL.L1)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id');
+  const body = await c.req.json().catch(()=>({}));
+  const reason = (body.reason||'').toString().trim();
+  await c.env.DB.prepare("UPDATE invoices SET status='rejected', notes=COALESCE(notes,'') || CASE WHEN ?<>'' THEN ('\nRejected: '||?) ELSE '' END, updated_at=CURRENT_TIMESTAMP WHERE id = ?").bind(reason,reason,id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id, payload) VALUES (?,?,?,?,?)').bind(lvl,'reject','invoice',id, JSON.stringify({reason})).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first();
+  return ok(c,row);
+});
+
+app.post('/api/invoices/:id{[0-9]+}/mark-paid', async (c)=>{
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if (!(lvl===LEVEL.L4 || lvl===LEVEL.L5)) return bad(c,'forbidden',403);
+  const id = Number(c.req.param('id'));
+  if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id');
+  await c.env.DB.prepare("UPDATE invoices SET status='paid', paid_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, entity_id) VALUES (?,?,?,?)').bind(lvl,'mark_paid','invoice',id).run(); } catch(_){ }
+  const row = await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first();
+  return ok(c,row);
+});
+app.get('/api/invoices', async (c)=>{
+  const DB=c.env.DB; const url=new URL(c.req.url);
+  const page=Math.max(parseInt(url.searchParams.get('page')||'1',10),1);
+  const size=Math.min(Math.max(parseInt(url.searchParams.get('size')||'25',10),1),100);
+  const status=(url.searchParams.get('status')||'').trim();
+  const vendor_id=url.searchParams.get('vendor_id');
+  const date_from=url.searchParams.get('date_from');
+  const date_to=url.searchParams.get('date_to');
+  const where=[],params=[];
+  if(status){where.push('status=?'); params.push(status);} 
+  if(vendor_id){where.push('vendor_id=?'); params.push(Number(vendor_id));}
+  if(date_from){where.push('invoice_date>=?'); params.push(date_from);} 
+  if(date_to){where.push('invoice_date<=?'); params.push(date_to);} 
+  const whereSql=where.length?`WHERE ${where.join(' AND ')}`:''; 
+  const total=(await DB.prepare(`SELECT COUNT(*) AS c FROM invoices ${whereSql}`).bind(...params).first())?.c||0; 
+  const rows=await DB.prepare(`SELECT * FROM invoices ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params,size,(page-1)*size).all(); 
+  return ok(c,{page,size,total,items:rows.results||[]}); 
+});
 app.get('/api/invoices/:id{[0-9]+}', async (c)=>{ const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); if(!row) return bad(c,'Not found',404); return ok(c,row); });
-app.post('/api/invoices', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const b=await c.req.json().catch(()=>({})); const vendor_id=b.vendor_id?Number(b.vendor_id):null; const invoice_number=(b.invoice_number||'').toString().trim(); if(!invoice_number) return bad(c,'invoice_number required'); const amount=b.amount?Number(b.amount):0; const status=INV_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending'; const due_date=b.due_date||null; await c.env.DB.prepare('INSERT INTO invoices (vendor_id,invoice_number,amount,status,due_date,created_by_level) VALUES (?,?,?,?,?,?)').bind(toDb(vendor_id),invoice_number,amount,status,toDb(due_date),lvl).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE invoice_number = ?').bind(invoice_number).first(); return ok(c,row); });
-app.put('/api/invoices/:id{[0-9]+}', async (c)=>{ const lvl=Number(c.req.header('x-user-level')||0); if(!canCreateEntries(lvl)) return bad(c,'forbidden',403); const id=Number(c.req.param('id')); if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id'); const b=await c.req.json().catch(()=>({})); const fields=[],params=[]; for(const k of ['vendor_id','invoice_number','amount','status','due_date']){ if(k in b){ params.push(b[k]); fields.push(`${k} = ?`);} } if(!fields.length) return bad(c,'No updatable fields provided'); params.push(id); await c.env.DB.prepare(`UPDATE invoices SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run(); const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first(); return ok(c,row); });
-app.get('/api/invoices/export.csv', async (c)=>{ const rows=await c.env.DB.prepare('SELECT id,vendor_id,invoice_number,amount,status,due_date,created_at FROM invoices ORDER BY created_at DESC').all(); const items=rows.results||[]; const header=['id','vendor_id','invoice_number','amount','status','due_date','created_at']; const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v)); const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n'); const today=new Date().toISOString().slice(0,10); return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="invoices_${today}.csv"`}}); });
+app.post('/api/invoices', async (c)=>{
+  const lvl = Number(c.req.header('x-user-level')||0);
+  if(!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const b = await c.req.json().catch(()=>({}));
+
+  // Required basics
+  const vendor_id = b.vendor_id ? Number(b.vendor_id) : null;
+  if (!vendor_id) return bad(c,'vendor_id required');
+  const invoice_number = (b.invoice_number||'').toString().trim();
+  if(!invoice_number) return bad(c,'invoice_number required');
+  const invoice_date = (b.invoice_date||'').toString().trim();
+  if(!invoice_date) return bad(c,'invoice_date required');
+  const due_date = b.due_date || null;
+  const currency = (b.currency||'INR').toString();
+  const fx_rate = b.fx_rate==null? null : Number(b.fx_rate);
+
+  // Monetary inputs
+  const taxable_value = Number(b.taxable_value||0);
+  const discount_amount = Number(b.discount_amount||0);
+  const freight_amount = Number(b.freight_amount||0);
+  const other_charges = Number(b.other_charges||0);
+  const rounding_adjustment = Number(b.rounding_adjustment||0);
+
+  // GST inputs (amounts)
+  let cgst_amount = Number(b.cgst_amount||0);
+  let sgst_amount = Number(b.sgst_amount||0);
+  let igst_amount = Number(b.igst_amount||0);
+  let cess_amount = Number(b.cess_amount||0);
+
+  // Get seller/buyer GSTINs
+  const vendor = await c.env.DB.prepare('SELECT id, gstin FROM vendors WHERE id = ?').bind(vendor_id).first();
+  if (!vendor) return bad(c,'Vendor not found',404);
+  const seller_gstin = b.seller_gstin?.toString().trim() || vendor.gstin || null;
+  const buyer_gstin_row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('canonical_buyer_gstin').first();
+  const buyer_gstin = buyer_gstin_row?.value ? (JSON.parse(buyer_gstin_row.value).toString? JSON.parse(buyer_gstin_row.value) : buyer_gstin_row.value) : null;
+
+  // Helper: extract state code from GSTIN
+  const stateCode = (g)=> (typeof g==='string' && g.length>=2 ? g.slice(0,2) : null);
+  const validGSTIN = (g)=> typeof g==='string' && isValidGSTIN(g);
+
+  // Decide supply type via URP (state code comparison) if both GSTIN present & valid
+  let gst_supply_type = (b.gst_supply_type||'').toString().trim();
+  let urp_applied = 1;
+  if (validGSTIN(seller_gstin) && validGSTIN(buyer_gstin)) {
+    const s = stateCode(seller_gstin); const p = stateCode(buyer_gstin);
+    if (s && p) gst_supply_type = (s===p ? 'intra' : 'inter');
+  } else {
+    // Missing/invalid GSTIN: require explicit supply type and mark URP not applied
+    if (!['intra','inter'].includes(gst_supply_type)) return bad(c,'gst_supply_type required when GSTIN missing/invalid');
+    urp_applied = 0;
+  }
+
+  // Enforce GST amounts consistency with supply type
+  if (gst_supply_type==='intra') { igst_amount = 0; }
+  if (gst_supply_type==='inter') { cgst_amount = 0; sgst_amount = 0; }
+
+  // TDS/TCS/Retention
+  let tds_rate = b.tds_rate==null? null : Number(b.tds_rate);
+  let tds_amount = Number(b.tds_amount||0);
+  const tcs_amount = Number(b.tcs_amount||0);
+  const retention_amount = Number(b.retention_amount||0);
+
+  // Settings for thresholds
+  async function getSettingNum(key, def){
+    const r = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
+    if (!r?.value) return def;
+    try { const v = JSON.parse(r.value); const n = Number(v); return Number.isFinite(n)?n:def; } catch { const n = Number(r.value); return Number.isFinite(n)?n:def; }
+  }
+  const single_thresh = await getSettingNum('tds_threshold_single_invoice', 30000);
+  const cum_thresh = await getSettingNum('tds_threshold_cumulative_vendor', 100000);
+  const default_tds_rate = await getSettingNum('default_tds_rate', 1);
+
+  // Compute FY range (India FY: Apr 1 - Mar 31)
+  function fyRange(dStr){
+    const d = new Date(dStr||Date.now());
+    const y = d.getUTCMonth()>=3 ? d.getUTCFullYear() : d.getUTCFullYear()-1;
+    const start = new Date(Date.UTC(y,3,1)); // Apr 1
+    const end = new Date(Date.UTC(y+1,2,31,23,59,59,999)); // Mar 31
+    return {start, end};
+  }
+  const {start, end} = fyRange(invoice_date);
+  const sumRow = await c.env.DB.prepare('SELECT COALESCE(SUM(taxable_value),0) AS s FROM invoices WHERE vendor_id = ? AND invoice_date >= ? AND invoice_date <= ?').bind(vendor_id, start.toISOString().slice(0,10), end.toISOString().slice(0,10)).first();
+  const ytdTaxable = Number(sumRow?.s||0);
+
+  // Apply thresholds
+  let tds_threshold_applied = 0;
+  const willExceed = (taxable_value >= single_thresh) || ((ytdTaxable + taxable_value) >= cum_thresh);
+  if (willExceed) {
+    tds_threshold_applied = 1;
+    if (tds_rate==null) tds_rate = default_tds_rate;
+    tds_amount = Number(((taxable_value * (tds_rate||0))/100).toFixed(2));
+  }
+
+  // Totals
+  const gross = taxable_value - discount_amount + freight_amount + other_charges + cgst_amount + sgst_amount + igst_amount + cess_amount + rounding_adjustment;
+  const net_payable = gross - tds_amount + tcs_amount - retention_amount;
+  const amount = b.amount==null? Number(net_payable.toFixed(2)) : Number(b.amount);
+
+  // Auto-calc override flag
+  let auto_calc_overridden = 0; let override_reason = (b.override_reason||'').toString();
+  const tolerance = 0.5; // 50 paise tolerance
+  if (Math.abs(net_payable - amount) > tolerance) { auto_calc_overridden = 1; if (!override_reason) override_reason = 'Net payable mismatch vs inputs'; }
+
+  const status = INV_STATUSES.has((b.status||'pending').toString())?(b.status||'pending').toString():'pending';
+
+  try {
+    await c.env.DB.prepare(`INSERT INTO invoices (
+      vendor_id, invoice_number, invoice_date, due_date, currency, fx_rate,
+      taxable_value, discount_amount, freight_amount, other_charges, rounding_adjustment,
+      seller_gstin, buyer_gstin, gst_supply_type, place_of_supply,
+      cgst_amount, sgst_amount, igst_amount, cess_amount,
+      auto_calc_overridden, override_reason, urp_applied,
+      tds_rate, tds_amount, tcs_amount, retention_amount, tds_threshold_applied,
+      po_number, dc_numbers, match_status, attachment_url, notes,
+      amount, status, created_by_level
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?)`).bind(
+      toDb(vendor_id), invoice_number, invoice_date, toDb(due_date), currency, toDb(fx_rate),
+      taxable_value, discount_amount, freight_amount, other_charges, rounding_adjustment,
+      toDb(seller_gstin), toDb(buyer_gstin), gst_supply_type, toDb(b.place_of_supply||null),
+      cgst_amount, sgst_amount, igst_amount, cess_amount,
+      auto_calc_overridden, toDb(override_reason), urp_applied,
+      toDb(tds_rate), tds_amount, tcs_amount, retention_amount, tds_threshold_applied,
+      toDb(b.po_number||null), toDb(b.dc_numbers? JSON.stringify(b.dc_numbers): null), 'na', toDb(b.attachment_url||null), toDb(b.notes||null),
+      amount, status, lvl
+    ).run();
+    const row = await c.env.DB.prepare('SELECT * FROM invoices WHERE vendor_id = ? AND invoice_number = ?').bind(vendor_id, invoice_number).first();
+    return ok(c,row);
+  } catch(e) {
+    if ((e.message||'').includes('UNIQUE')) return bad(c,'Duplicate invoice for this vendor (invoice_number)',409);
+    return bad(c,`Failed to create invoice: ${e.message||e}`,400);
+  }
+});
+app.put('/api/invoices/:id{[0-9]+}', async (c)=>{
+  const lvl=Number(c.req.header('x-user-level')||0);
+  if(!canCreateEntries(lvl)) return bad(c,'forbidden',403);
+  const id=Number(c.req.param('id'));
+  if(!Number.isInteger(id)||id<=0) return bad(c,'Invalid id');
+  const b=await c.req.json().catch(()=>({}));
+
+  // Fetch current
+  const cur = await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first();
+  if (!cur) return bad(c,'Not found',404);
+  if (cur.status !== 'pending') return bad(c,'Only pending invoices can be edited');
+
+  // Build updates safely; if amounts change, we may need to recompute totals similar to POST.
+  const allow = ['vendor_id','invoice_number','invoice_date','due_date','currency','fx_rate','taxable_value','discount_amount','freight_amount','other_charges','rounding_adjustment','seller_gstin','buyer_gstin','gst_supply_type','place_of_supply','cgst_amount','sgst_amount','igst_amount','cess_amount','tds_rate','tds_amount','tcs_amount','retention_amount','po_number','dc_numbers','attachment_url','notes','amount'];
+  const fields=[],params=[];
+  for (const k of allow) {
+    if (k in b) {
+      let v = b[k];
+      if (k==='dc_numbers') v = v==null? null : JSON.stringify(v);
+      params.push(v===''?null:v);
+      fields.push(`${k} = ?`);
+    }
+  }
+  if (!fields.length) return bad(c,'No updatable fields provided');
+  params.push(id);
+  await c.env.DB.prepare(`UPDATE invoices SET ${fields.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run();
+  const row=await c.env.DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first();
+  return ok(c,row);
+});
+app.get('/api/invoices/export.csv', async (c)=>{
+  const rows=await c.env.DB.prepare('SELECT id,vendor_id,invoice_number,invoice_date,due_date,currency,fx_rate,taxable_value,discount_amount,freight_amount,other_charges,rounding_adjustment,seller_gstin,buyer_gstin,gst_supply_type,place_of_supply,cgst_amount,sgst_amount,igst_amount,cess_amount,tds_rate,tds_amount,tcs_amount,retention_amount,tds_threshold_applied,po_number,dc_numbers,match_status,attachment_url,notes,amount,status,created_at FROM invoices ORDER BY created_at DESC').all();
+  const items=rows.results||[];
+  const header=['id','vendor_id','invoice_number','invoice_date','due_date','currency','fx_rate','taxable_value','discount_amount','freight_amount','other_charges','rounding_adjustment','seller_gstin','buyer_gstin','gst_supply_type','place_of_supply','cgst_amount','sgst_amount','igst_amount','cess_amount','tds_rate','tds_amount','tcs_amount','retention_amount','tds_threshold_applied','po_number','dc_numbers','match_status','attachment_url','notes','amount','status','created_at'];
+  const esc=(v)=>v==null?'':(/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v));
+  const csv=[header.join(',')].concat(items.map(r=>header.map(h=>esc(r[h])).join(','))).join('\n');
+  const today=new Date().toISOString().slice(0,10);
+  return new Response(csv,{status:200,headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="invoices_${today}.csv"`}});
+});
 
 // Delivery Challans (DC)
 const DC_STATUSES = new Set(['pending','approved','rejected','delivered']);
@@ -884,21 +1113,136 @@ app.post('/api/invoices/import.csv', async (c) => {
   if (!text) return bad(c,'Empty CSV');
   const lines=text.split(/\r?\n/).filter(l=>l.trim().length); if (lines.length<=1) return bad(c,'CSV must include header and at least one row');
   const header=lines[0].split(',').map(h=>h.trim()); const idx=(n)=>header.indexOf(n);
+  // Required columns for robust import
   if (idx('invoice_number')===-1) return bad(c,'Missing required column: invoice_number');
+  if (idx('vendor_id')===-1) return bad(c,'Missing required column: vendor_id');
+  if (idx('invoice_date')===-1) return bad(c,'Missing required column: invoice_date');
   const dry=c.req.header('x-dry-run')==='1'; let inserted=0,updated=0,skipped=0,errors=[];
+
+  // Settings cached
+  async function getSettingNum(key, def){ const r=await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first(); if(!r?.value) return def; try{ const v=JSON.parse(r.value); const n=Number(v); return Number.isFinite(n)?n:def; }catch{ const n=Number(r.value); return Number.isFinite(n)?n:def; } }
+  const single_thresh = await getSettingNum('tds_threshold_single_invoice', 30000);
+  const cum_thresh = await getSettingNum('tds_threshold_cumulative_vendor', 100000);
+  const default_tds_rate = await getSettingNum('default_tds_rate', 1);
+  const buyer_gstin_row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('canonical_buyer_gstin').first();
+  const canonical_buyer_gstin = buyer_gstin_row?.value ? (JSON.parse(buyer_gstin_row.value).toString? JSON.parse(buyer_gstin_row.value) : buyer_gstin_row.value) : null;
+  const isValidGSTIN = (s)=> typeof s==='string' && GSTIN_REGEX.test(s.trim());
+  const stateCode = (g)=> (typeof g==='string' && g.length>=2 ? g.slice(0,2) : null);
+  function fyRange(dStr){ const d=new Date(dStr||Date.now()); const y=d.getUTCMonth()>=3?d.getUTCFullYear():d.getUTCFullYear()-1; const start=new Date(Date.UTC(y,3,1)); const end=new Date(Date.UTC(y+1,2,31,23,59,59,999)); return {start,end}; }
+
   for(let i=1;i<lines.length;i++){
     const cols = lines[i].match(/(?:^|,)(?:\"([^\"]*)\"|([^,]*))/g)?.map(s=>s.replace(/^,/, '').replace(/^\"|\"$/g,'')) || lines[i].split(',');
     const rec=Object.fromEntries(header.map((h,j)=>[h, cols[j]??'']));
+
+    // Basic required fields
     const invoice_number=(rec.invoice_number||'').trim(); if(!invoice_number){skipped++; continue;}
-    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null;
-    const amount = rec.amount? Number(rec.amount) : 0;
-    const status = rec.status? String(rec.status) : 'pending';
+    const vendor_id = rec.vendor_id? Number(rec.vendor_id) : null; if(!vendor_id){ errors.push(`Row ${i+1}: vendor_id required`); continue; }
+    const invoice_date = (rec.invoice_date||'').toString().trim(); if(!invoice_date){ errors.push(`Row ${i+1}: invoice_date required`); continue; }
     const due_date = rec.due_date||null;
+    const currency = (rec.currency||'INR').toString();
+    const fx_rate = rec.fx_rate===''||rec.fx_rate==null? null : Number(rec.fx_rate);
+
+    // Monetary inputs
+    const taxable_value = Number(rec.taxable_value||0);
+    const discount_amount = Number(rec.discount_amount||0);
+    const freight_amount = Number(rec.freight_amount||0);
+    const other_charges = Number(rec.other_charges||0);
+    const rounding_adjustment = Number(rec.rounding_adjustment||0);
+
+    // GST amounts
+    let cgst_amount = Number(rec.cgst_amount||0);
+    let sgst_amount = Number(rec.sgst_amount||0);
+    let igst_amount = Number(rec.igst_amount||0);
+    let cess_amount = Number(rec.cess_amount||0);
+
+    // GSTINs
+    const seller_gstin_input = (rec.seller_gstin||'').toString().trim() || null;
+    const vendor = await c.env.DB.prepare('SELECT id, gstin FROM vendors WHERE id = ?').bind(vendor_id).first();
+    if (!vendor) { errors.push(`Row ${i+1}: vendor not found`); continue; }
+    const seller_gstin = seller_gstin_input || vendor.gstin || null;
+    const buyer_gstin = (rec.buyer_gstin||'').toString().trim() || canonical_buyer_gstin || null;
+
+    // URP / supply type
+    let gst_supply_type = (rec.gst_supply_type||'').toString().trim();
+    let urp_applied = 1;
+    if (isValidGSTIN(seller_gstin) && isValidGSTIN(buyer_gstin)) {
+      const s=stateCode(seller_gstin), p=stateCode(buyer_gstin); if (s&&p) gst_supply_type = (s===p?'intra':'inter');
+    } else {
+      if (!['intra','inter'].includes(gst_supply_type)) { errors.push(`Row ${i+1}: gst_supply_type required when GSTIN missing/invalid`); continue; }
+      urp_applied = 0;
+    }
+
+    // Consistency
+    if (gst_supply_type==='intra') { igst_amount=0; }
+    if (gst_supply_type==='inter') { cgst_amount=0; sgst_amount=0; }
+
+    // TDS/TCS/Retention
+    let tds_rate = rec.tds_rate===''||rec.tds_rate==null? null : Number(rec.tds_rate);
+    let tds_amount = Number(rec.tds_amount||0);
+    const tcs_amount = Number(rec.tcs_amount||0);
+    const retention_amount = Number(rec.retention_amount||0);
+
+    // Thresholds
+    const {start,end} = fyRange(invoice_date);
+    const sumRow = await c.env.DB.prepare('SELECT COALESCE(SUM(taxable_value),0) AS s FROM invoices WHERE vendor_id = ? AND invoice_date >= ? AND invoice_date <= ?').bind(vendor_id, start.toISOString().slice(0,10), end.toISOString().slice(0,10)).first();
+    const ytdTaxable = Number(sumRow?.s||0);
+    let tds_threshold_applied = 0;
+    const willExceed = (taxable_value >= single_thresh) || ((ytdTaxable + taxable_value) >= cum_thresh);
+    if (willExceed) { tds_threshold_applied = 1; if (tds_rate==null) tds_rate = default_tds_rate; tds_amount = Number(((taxable_value * (tds_rate||0))/100).toFixed(2)); }
+
+    // Totals
+    const gross = taxable_value - discount_amount + freight_amount + other_charges + cgst_amount + sgst_amount + igst_amount + cess_amount + rounding_adjustment;
+    const net_payable = gross - tds_amount + tcs_amount - retention_amount;
+    const amount = rec.amount===''||rec.amount==null? Number(net_payable.toFixed(2)) : Number(rec.amount);
+    let auto_calc_overridden = 0; let override_reason = (rec.override_reason||'').toString();
+    const tolerance = 0.5; if (Math.abs(net_payable-amount) > tolerance) { auto_calc_overridden=1; if(!override_reason) override_reason='Net payable mismatch vs inputs'; }
+
+    const place_of_supply = rec.place_of_supply||null;
+    const po_number = rec.po_number||null;
+    let dc_numbers = null; if (rec.dc_numbers){ try{ const arr=JSON.parse(rec.dc_numbers); dc_numbers = JSON.stringify(arr); }catch{ dc_numbers=null; } }
+    const match_status = 'na';
+    const attachment_url = rec.attachment_url||null;
+    const notes = rec.notes||null;
+    const status = INV_STATUSES.has((rec.status||'pending').toString())?(rec.status||'pending').toString():'pending';
+
     try{
-      const sql=`INSERT INTO invoices (vendor_id,invoice_number,amount,status,due_date) VALUES (?,?,?,?,?) ON CONFLICT(invoice_number) DO UPDATE SET vendor_id=excluded.vendor_id, amount=excluded.amount, status=excluded.status, due_date=excluded.due_date, updated_at=CURRENT_TIMESTAMP`;
-      if (!dry) { await c.env.DB.prepare(sql).bind(toDb(vendor_id), invoice_number, amount, status, toDb(due_date)).run(); }
-      dry?updated++:(inserted++);
-    }catch(e){ if((e.message||'').includes('UNIQUE')){ updated++; } else { errors.push(`Row ${i+1}: ${e.message||e}`);} }
+      if (dry) {
+        const exists = await c.env.DB.prepare('SELECT id FROM invoices WHERE vendor_id = ? AND invoice_number = ?').bind(vendor_id, invoice_number).first();
+        if (exists) updated++; else inserted++;
+        continue;
+      }
+      const sql = `INSERT INTO invoices (
+        vendor_id, invoice_number, invoice_date, due_date, currency, fx_rate,
+        taxable_value, discount_amount, freight_amount, other_charges, rounding_adjustment,
+        seller_gstin, buyer_gstin, gst_supply_type, place_of_supply,
+        cgst_amount, sgst_amount, igst_amount, cess_amount,
+        auto_calc_overridden, override_reason, urp_applied,
+        tds_rate, tds_amount, tcs_amount, retention_amount, tds_threshold_applied,
+        po_number, dc_numbers, match_status, attachment_url, notes,
+        amount, status
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(vendor_id, invoice_number) DO UPDATE SET 
+        invoice_date=excluded.invoice_date, due_date=excluded.due_date, currency=excluded.currency, fx_rate=excluded.fx_rate,
+        taxable_value=excluded.taxable_value, discount_amount=excluded.discount_amount, freight_amount=excluded.freight_amount, other_charges=excluded.other_charges, rounding_adjustment=excluded.rounding_adjustment,
+        seller_gstin=excluded.seller_gstin, buyer_gstin=excluded.buyer_gstin, gst_supply_type=excluded.gst_supply_type, place_of_supply=excluded.place_of_supply,
+        cgst_amount=excluded.cgst_amount, sgst_amount=excluded.sgst_amount, igst_amount=excluded.igst_amount, cess_amount=excluded.cess_amount,
+        auto_calc_overridden=excluded.auto_calc_overridden, override_reason=excluded.override_reason, urp_applied=excluded.urp_applied,
+        tds_rate=excluded.tds_rate, tds_amount=excluded.tds_amount, tcs_amount=excluded.tcs_amount, retention_amount=excluded.retention_amount, tds_threshold_applied=excluded.tds_threshold_applied,
+        po_number=excluded.po_number, dc_numbers=excluded.dc_numbers, match_status=excluded.match_status, attachment_url=excluded.attachment_url, notes=excluded.notes,
+        amount=excluded.amount, status=excluded.status, updated_at=CURRENT_TIMESTAMP`;
+      await c.env.DB.prepare(sql).bind(
+        toDb(vendor_id), invoice_number, invoice_date, toDb(due_date), currency, toDb(fx_rate),
+        taxable_value, discount_amount, freight_amount, other_charges, rounding_adjustment,
+        toDb(seller_gstin), toDb(buyer_gstin), gst_supply_type, toDb(place_of_supply),
+        cgst_amount, sgst_amount, igst_amount, cess_amount,
+        auto_calc_overridden, toDb(override_reason), urp_applied,
+        toDb(tds_rate), tds_amount, tcs_amount, retention_amount, tds_threshold_applied,
+        toDb(po_number), toDb(dc_numbers), match_status, toDb(attachment_url), toDb(notes),
+        amount, status
+      ).run();
+      const exists = await c.env.DB.prepare('SELECT id FROM invoices WHERE vendor_id = ? AND invoice_number = ?').bind(vendor_id, invoice_number).first();
+      if (exists) updated++; else inserted++;
+    }catch(e){ errors.push(`Row ${i+1}: ${e.message||e}`); }
   }
   try { await c.env.DB.prepare('INSERT INTO audit_log (actor_level, action, entity_type, payload) VALUES (?,?,?,?)').bind(lvl, dry?'import_dry_run':'import','invoices_csv', JSON.stringify({inserted,updated,skipped,errorsCount:errors.length})).run(); } catch(_){ }
   return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
