@@ -562,7 +562,7 @@ app.delete('/api/roles/:id', async (c) => {
 });
 
 // Payments endpoints
-app.post('/api/payments/:id{[0-9]+}{[0-9]+}/proof', async (c) => {
+app.post('/api/payments/:id{[0-9]+}/proof', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!(lvl === LEVEL.L1 || lvl === LEVEL.L5)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -633,7 +633,7 @@ app.put('/api/payments/:id{[0-9]+}', async (c) => {
   return ok(c, row);
 });
 
-app.post('/api/payments/:id{[0-9]+}{[0-9]+}/mark-done', async (c) => {
+app.post('/api/payments/:id{[0-9]+}/mark-done', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canMarkPaymentDone(lvl)) return bad(c,'forbidden',403);
   const id = Number(c.req.param('id'));
@@ -930,7 +930,6 @@ app.post('/api/dcs/import.csv', async (c) => {
   return ok(c,{dryRun: dry, inserted, updated, skipped, errors});
 });
 
-});
 app.post('/api/instruments/import.csv', async (c) => {
   const lvl = Number(c.req.header('x-user-level')||0);
   if (!canCreateEntries(lvl)) return bad(c,'forbidden',403);
