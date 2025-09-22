@@ -496,7 +496,7 @@ app.get('/api/roles', async (c) => {
   const rows = await DB.prepare('SELECT id, name, level, permissions, created_at FROM roles ORDER BY level ASC').all();
   return ok(c, rows.results || []);
 });
-app.get('/api/roles/:id', async (c) => {
+app.get('/api/roles/:id{[0-9]+}', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
@@ -526,7 +526,7 @@ app.post('/api/roles', async (c) => {
     return bad(c, `Failed to create role: ${e.message || e}`, 400);
   }
 });
-app.put('/api/roles/:id', async (c) => {
+app.put('/api/roles/:id{[0-9]+}', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
@@ -551,7 +551,7 @@ app.put('/api/roles/:id', async (c) => {
     return bad(c, `Failed to update role: ${e.message || e}`, 400);
   }
 });
-app.delete('/api/roles/:id', async (c) => {
+app.delete('/api/roles/:id{[0-9]+}', async (c) => {
   const { DB } = c.env;
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'Invalid role id');
