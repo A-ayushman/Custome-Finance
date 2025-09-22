@@ -50,9 +50,9 @@ jobs:
         run: |
           set -e
           BRANCH="${{ github.event.inputs.branch }}"
-          # If the branch already exists remotely, base our local branch on it to avoid non-fast-forward
+          # Try to base on remote branch if it exists to avoid non-fast-forward
           git fetch origin "$BRANCH" || true
-          if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/$BRANCH"; then
+          if git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
             echo "Remote branch exists; basing on origin/$BRANCH"
             git checkout -B "$BRANCH" "origin/$BRANCH"
           else
@@ -63,7 +63,19 @@ jobs:
           echo "updated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" > .odic/last_update.txt
           git add .odic/last_update.txt
           git commit -m "chore(odic): update marker via App token" || echo "no changes"
+
+          # First push attempt
+          set +e
           git push -u origin "$BRANCH"
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "Initial push failed (rc=$rc). Attempting rebase/merge onto origin/$BRANCH and retry with --force-with-lease."
+            git fetch origin "$BRANCH" || true
+            if git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
+              git rebase "origin/$BRANCH" || git merge --no-edit "origin/$BRANCH" || true
+            fi
+            git push --force-with-lease origin "$BRANCH"
+          fi
 
       - name: Create or update PR
         uses: actions/github-script@v7
